@@ -1,0 +1,203 @@
+// =====================================================================
+// paint  —  Attribute Wrangle, Run Over: Primitives
+//   input 1: the whole house (unpacked)      input 2: building_params
+//
+// Gives every face a PAINT ROLE and a colour from the house's palette.
+//   s@paint = body | trim | accent | sash | door | garage | glass | roof | stair
+//   v@Cd    = the colour (linear, ready for Karma)
+//   s@material = which MaterialX material renders it (siding, trim, glass, granite ...)
+//   s@path     = /house/<material>  -> one USD prim per material, assigned by path in Solaris
+//   f@base_brick, f@base_top  -> primvars: the siding shader turns the ground floor into brick
+//
+// The role comes from the groups / names the builders already wrote:
+//   glass                        -> glass
+//   sash, frame                  -> sash      (window frames)
+//   door                         -> door
+//   garage_body                  -> garage
+//   panel_field                  -> accent    (recessed panels on the bays)
+//   shingle                      -> shingle   (fish-scale shingles in a gable)
+//   roof, roof_top               -> roof
+//   trim-like groups / parts     -> trim
+//   rail                         -> iron
+//   steps, landing, cheek walls  -> stair   (marble on Italianates, granite otherwise)
+//   everything else (the wall)   -> body
+// =====================================================================
+
+// ---------- the palettes (v3, restrained like real restored SF Victorians; sRGB) ----------
+// body = walls, trim = casings/mouldings (mostly cream), accent = panels + frieze (deeper body tone),
+// accent2 = ONE small pop colour (brackets, shingles, keystones), sash = window frames, door
+//    1 Postcard Blue
+//    2 Sage & Cream
+//    3 Butter Yellow
+//    4 Dusty Rose
+//    5 Lavender Grey
+//    6 Slate & Gold
+//    7 Muted Teal
+//    8 Cream & Green
+//    9 Midnight Navy
+//   10 Olive & Brick
+//   11 Terracotta
+//   12 Classic White
+vector body_col[] = array({0.56,0.65,0.73}, {0.62,0.67,0.55}, {0.91,0.82,0.57}, {0.79,0.62,0.61}, {0.66,0.63,0.72}, {0.43,0.48,0.53}, {0.38,0.53,0.54}, {0.92,0.89,0.79}, {0.21,0.26,0.36}, {0.52,0.52,0.38}, {0.72,0.50,0.42}, {0.92,0.91,0.88});
+vector trim_col[] = array({0.95,0.93,0.87}, {0.95,0.93,0.86}, {0.96,0.95,0.91}, {0.96,0.94,0.89}, {0.96,0.95,0.93}, {0.93,0.91,0.85}, {0.95,0.92,0.84}, {0.33,0.42,0.34}, {0.92,0.91,0.87}, {0.93,0.90,0.80}, {0.95,0.92,0.84}, {0.97,0.97,0.95});
+vector accent_col[] = array({0.33,0.42,0.52}, {0.40,0.46,0.36}, {0.42,0.50,0.44}, {0.55,0.38,0.40}, {0.42,0.38,0.50}, {0.27,0.31,0.36}, {0.24,0.36,0.38}, {0.57,0.62,0.50}, {0.36,0.42,0.52}, {0.36,0.36,0.25}, {0.48,0.32,0.27}, {0.62,0.66,0.70});
+vector accent2_col[] = array({0.78,0.64,0.36}, {0.62,0.26,0.20}, {0.55,0.22,0.18}, {0.40,0.47,0.40}, {0.74,0.62,0.38}, {0.76,0.62,0.33}, {0.70,0.42,0.30}, {0.60,0.24,0.20}, {0.72,0.58,0.32}, {0.58,0.26,0.19}, {0.38,0.46,0.42}, {0.42,0.46,0.50});
+vector sash_col[] = array({0.16,0.19,0.23}, {0.15,0.18,0.15}, {0.20,0.27,0.23}, {0.30,0.20,0.22}, {0.20,0.18,0.25}, {0.12,0.13,0.15}, {0.12,0.17,0.18}, {0.24,0.30,0.25}, {0.92,0.91,0.87}, {0.18,0.18,0.13}, {0.22,0.17,0.15}, {0.10,0.10,0.11});
+vector door_col[] = array({0.36,0.20,0.12}, {0.40,0.22,0.13}, {0.30,0.36,0.32}, {0.42,0.24,0.24}, {0.33,0.26,0.38}, {0.45,0.16,0.15}, {0.48,0.22,0.18}, {0.24,0.32,0.26}, {0.48,0.18,0.18}, {0.45,0.22,0.15}, {0.30,0.36,0.33}, {0.10,0.10,0.11});
+
+int palette = detail(1, "palette");                 // -1 = Custom (colours from the asset's Paint tab)
+int p = clamp(palette, 0, len(body_col) - 1);
+vector c_body = body_col[p], c_trim = trim_col[p], c_accent = accent_col[p];
+vector c_pop = accent2_col[p], c_sash = sash_col[p], c_door = door_col[p];
+if (palette < 0) {
+    c_body = chv("custom_body"); c_trim = chv("custom_trim"); c_accent = chv("custom_accent");
+    c_pop  = chv("custom_pop");  c_sash = chv("custom_sash"); c_door   = chv("custom_door");
+}
+
+// ---------- which role is this face? ----------
+string part = prim(0, "name", @primnum);      // unit assets (stairs, porch) carry a name
+string role = "body";
+
+// window dressing (from window_dressing): keeps its own fabric colour
+string dress[] = array("room", "curtain_sheer", "curtain", "blind", "plant", "pot");
+foreach (string g; dress) if (inprimgroup(0, g, @primnum)) role = g;
+
+if (role != "body") role = role;               // already decided above
+else if (inprimgroup(0, "glass", @primnum))                                         role = "glass";
+else if (inprimgroup(0, "sash", @primnum) || inprimgroup(0, "frame", @primnum))     role = "sash";
+else if (inprimgroup(0, "door", @primnum))                                          role = "door";
+else if (inprimgroup(0, "garage_body", @primnum))                                   role = "garage";
+else if (inprimgroup(0, "panel_field", @primnum))                                   role = "accent";
+else if (inprimgroup(0, "shingle", @primnum))                                       role = "shingle";
+else if (inprimgroup(0, "house_number", @primnum))                                  role = "number";
+else if (inprimgroup(0, "bracket", @primnum))                                       role = "bracket";
+else if (inprimgroup(0, "ornament", @primnum))                                      role = "ornament";
+else if (inprimgroup(0, "roof", @primnum) || inprimgroup(0, "roof_top", @primnum))  role = "roof";
+else if (inprimgroup(0, "rail", @primnum) || part == "rail")                        role = "iron";
+else if (part == "step" || part == "landing" || part == "cheek")                    role = "stair";
+else {
+    string trim_groups[] = array("trim", "trim_curve", "casing", "cap", "post", "panel_mold",
+                                 "skirt", "soffit", "reveal", "door_frame", "threshold");
+    foreach (string g; trim_groups)
+        if (inprimgroup(0, g, @primnum)) { role = "trim"; break; }
+    string trim_parts[] = array("column", "beam", "cap", "pediment", "newel", "newel_cap",
+                                "baluster", "transom");
+    if (find(trim_parts, part) >= 0) role = "trim";
+}
+
+// ---------- stoop finish: chosen per house ----------
+//   0 PAINTED WOOD : treads porch-grey, risers + stringers trim, cheek walls body, handrails trim
+//   1 STONE        : marble (Italianate) / granite steps, iron rails  (the old look)
+//   2 CONCRETE     : concrete steps, brick cheek walls, iron rails
+int style_s = detail(1, "style");
+float rs = rand(chi("seed") * 7919 + 411);
+int stair_fin = style_s == 0 ? (rs < 0.35 ? 0 : (rs < 0.85 ? 1 : 2)) : (rs < 0.6 ? 0 : (rs < 0.82 ? 1 : 2));
+int brick_cheek = 0, stair_side = 0, garage_metal = 0;
+// handrails: always painted on wood stoops, about half the time on stone / concrete ones (else black iron)
+if (role == "iron" && (stair_fin == 0 || rand(chi("seed") * 7919 + 413) < 0.45)) role = "rail_wood";
+// painted treads: the body colour, near-black, or porch grey
+float rt = rand(chi("seed") * 7919 + 415);
+vector c_tread = rt < 0.25 ? c_body * 0.9 : (rt < 0.45 ? set(0.13, 0.13, 0.14) : (rt < 0.62 ? lerp(c_accent, {0.38, 0.37, 0.36}, 0.55)
+               : (rt < 0.78 ? set(0.9, 0.89, 0.86) : (rt < 0.9 ? set(0.42, 0.28, 0.17) : c_accent * 0.85))));   // body / black / grey / white / wood / accent
+
+// ---------- colour ----------
+vector srgb;
+if      (role == "body")   srgb = c_body;
+else if (role == "trim")   srgb = c_trim;
+else if (role == "accent") srgb = c_accent;
+else if (role == "shingle")  srgb = c_pop;                               // gable shingles: the pop colour
+else if (role == "ornament") srgb = c_pop;
+else if (role == "number")   srgb = rand(chi("seed") * 7919 + 420) < 0.65 ? set(0.86, 0.68, 0.3) : c_trim;   // gilded or painted numerals
+else if (role == "bracket") {                                            // big brackets: mostly trim, sometimes accent, rarely pop
+    float rb = rand(chi("seed") * 7919 + 401);
+    srgb = rb < 0.6 ? c_trim : (rb < 0.85 ? c_accent : c_pop);
+}                               // brackets, dentils, keystones, rosettes
+else if (role == "sash")   srgb = c_sash;
+else if (role == "door")   srgb = c_door;
+else if (find(dress, role) >= 0 && role != "pot") srgb = prim(0, "fabric_col", @primnum);
+else if (role == "pot")    srgb = {0.62, 0.32, 0.20};                    // terracotta
+else if (role == "garage") {
+    // garage door finish per house: trim, white, brushed metal, body, accent, dark paint, stained wood
+    float rg = rand(chi("seed") * 7919 + 450);
+    if      (rg < 0.22) srgb = lerp(c_trim, c_body, 0.15);
+    else if (rg < 0.38) srgb = {0.93, 0.93, 0.91};
+    else if (rg < 0.52) { srgb = {0.62, 0.63, 0.64}; garage_metal = 1; }
+    else if (rg < 0.64) srgb = c_body * 0.92;
+    else if (rg < 0.74) srgb = c_accent;
+    else if (rg < 0.88) { vector darks[] = array({0.12, 0.12, 0.13}, {0.14, 0.2, 0.16}, {0.32, 0.12, 0.11}, {0.15, 0.18, 0.26});
+                          srgb = darks[int(rand(chi("seed") * 7919 + 451) * 3.999)]; }
+    else                srgb = {0.42, 0.27, 0.16};                                   // stained wood
+}
+else if (role == "glass")  srgb = {0.05, 0.07, 0.09};
+else if (role == "roof") {
+    // pitched: charcoal / slate blue / weathered green / red-brown / cedar brown;  flat: tar, silver or white coating
+    vector shingles[] = array({0.16, 0.16, 0.17}, {0.24, 0.28, 0.33}, {0.26, 0.32, 0.27}, {0.40, 0.22, 0.17}, {0.36, 0.28, 0.20});
+    vector flats[] = array({0.14, 0.14, 0.15}, {0.62, 0.62, 0.6}, {0.8, 0.8, 0.78});
+    vector rn = prim_normal(0, @primnum, {0.5, 0.5, 0});
+    if (abs(rn.y) > 0.95) srgb = flats[int(rand(chi("seed") * 7919 + 441) * 2.999)];
+    else                  srgb = shingles[int(rand(chi("seed") * 7919 + 440) * 4.999)];
+}
+else if (role == "iron")   srgb = {0.04, 0.04, 0.045};
+else if (role == "rail_wood") srgb = rand(chi("seed") * 7919 + 412) < 0.7 ? c_trim : c_accent;
+else if (part == "cheek") {                                            // cheek walls: the house's body colour (any finish)
+    if (stair_fin == 2 && rand(chi("seed") * 7919 + 414) < 0.35) { srgb = {0.64, 0.63, 0.6}; brick_cheek = 1; }
+    else srgb = c_body;
+}
+else if (stair_fin == 0) {                                              // painted wood stoop
+    vector nrm = prim_normal(0, @primnum, {0.5, 0.5, 0});
+    if (nrm.y > 0.7)           srgb = c_tread;                          // treads
+    else if (abs(nrm.x) > 0.7) srgb = c_body;                           // the side of the flight blends into the house
+    else                       srgb = c_trim;                           // risers
+}
+else if (stair_fin == 2) {
+    vector nrm = prim_normal(0, @primnum, {0.5, 0.5, 0});
+    if (abs(nrm.x) > 0.7) { srgb = c_body; stair_side = 1; }            // painted concrete sides (like the pink house)
+    else srgb = {0.64, 0.63, 0.6};
+}
+else {                                                                   // stone: warm grey / pale / dark slate
+    float rsn = rand(chi("seed") * 7919 + 452);
+    srgb = rsn < 0.5 ? set(0.66, 0.64, 0.60) : (rsn < 0.8 ? set(0.82, 0.81, 0.78) : set(0.3, 0.31, 0.33));
+}
+
+// ---------- material ----------
+int style = detail(1, "style");
+string material = role;
+if      (role == "body")   material = "siding";
+else if (role == "accent" || role == "ornament" || role == "bracket") material = "trim";                       // painted panels: trim material, accent colour
+else if (role == "rail_wood") material = "trim";
+else if (role == "garage" && garage_metal) material = "metal";
+else if (role == "number") material = "metal";
+else if (role == "stair")  material = part == "cheek" ? (brick_cheek ? "siding" : "trim")
+                                   : (stair_fin == 0 || stair_side ? "trim" : (stair_fin == 2 ? "concrete" : (style == 0 ? "marble" : "granite")));
+else if (role == "blind")  material = "curtain";
+else if (role == "pot")    material = "plant";
+else if (role == "glass") {
+    // garage + front-door glass stays dark and opaque (nothing is modelled behind it)
+    vector c = primuv(0, "P", @primnum, {0.5, 0.5, 0});
+    for (int k = 0; k < npoints(1); k++) {
+        string nm = point(1, "name", k);
+        if (nm != "garage" && nm != "door" && nm != "stairs") continue;
+        vector mn = point(1, "bbmin", k), mx = point(1, "bbmax", k);
+        if (c.x > mn.x && c.x < mx.x && c.y > mn.y && c.y < mx.y) material = "glass_dark";
+    }
+}
+
+if (part == "newel") srgb = c_body;                                    // newel posts: body colour, trim caps + panels
+// lit rooms: about 60% of rooms have the lights on (per window, from its position + the seed)
+f@lit = 1; f@glow_t = 0.5;
+if (role == "room") {
+    int rid = prim(0, "room_id", @primnum);                                // whole room shares one light (no patchwork)
+    float key = chi("seed") * 7919 + 430 + rid * 37;
+    f@lit = rand(key) < 0.75 ? 0.7 + 0.6 * rand(key + 1) : 0.12;        // 3 in 4 rooms lit; 'off' rooms keep a faint glow (not black holes)
+    f@glow_t = rand(key + 2);                                              // 0 = warm orange lamp ... 1 = whiter LED
+}
+s@paint    = role;
+s@material = material;
+v@Cd       = pow(srgb, 2.2);       // sRGB paint chip -> linear colour for rendering
+s@path     = "/house/" + material;
+
+// brick base: the siding shader switches to brick below base_top when base_brick = 1
+float floor_h[] = detail(1, "floor_h");
+f@base_brick = detail(1, "brick_base");
+f@base_top   = len(floor_h) > 0 ? floor_h[0] : 0.0;
+if (brick_cheek) { f@base_brick = 1; f@base_top = 1000; }          // concrete stoops: brick cheek walls

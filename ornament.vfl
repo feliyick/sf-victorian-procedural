@@ -1,0 +1,313 @@
+// =====================================================================
+// ornament  —  Attribute Wrangle, Run Over: Detail
+//   input 1: geometry from a builder (roof_build / porch_detail) that contains "orn_slot" points
+//
+// Grows carved Victorian relief ornament in every slot, then removes the slot points.
+//   orn_type 1  running scroll : a wave-shaped vine with spiral curls, rosettes and leaves
+//                                (frieze panels, entablatures, porch beams)
+//   orn_type 2  corner spray   : acanthus-style stem with alternating curls and leaves filling a
+//                                right triangle (the two sides of a gable)
+//   orn_type 3  sunburst       : fan of rays with leaf tips and a half rosette (gable peak)
+// Slot point:  P = anchor, v@orn_u = "across" direction, v@orn_n = out of the wall,
+//              f@orn_w / f@orn_h = size.   Scroll: P = centre.  Spray: P = inner-bottom corner,
+//              orn_u points away from the inner edge.  Sunburst: P = base centre.
+// Relief: curves become half-round tubes, leaves and rosettes are raised flat shapes.
+// Colour: trim (default), or two-tone (leaves + rosettes in the pop colour), or all pop.
+// Controls: the asset's Ornament tab (density, scroll style, peak motif, repeat, curl, leaf, relief, colour).
+//   input 2: building_params (for the house style when the menus are on Auto)
+// =====================================================================
+#include "facade_lib.h"
+
+vector to3(vector O, U, V, N; float u, v, z) { return O + U * u + V * v + N * z; }
+
+// a quad whose front faces "outdir"
+void oquad(vector a, b, c, d, outdir; string grp) {
+    vector nn = cross(c - b, b - a);
+    if (dot(nn, outdir) >= 0) add_quad(a, b, c, d, grp);
+    else                      add_quad(d, c, b, a, grp);
+}
+
+// a polygon (in 3D) whose front faces "outdir"
+void opoly(vector p[]; vector outdir; string grp) {
+    int n = len(p);
+    if (n < 3) return;
+    vector nn = 0;
+    for (int i = 0; i < n; i++) { vector a = p[i], b = p[(i + 1) % n], c = p[(i + 2) % n]; nn += cross(c - b, b - a); }
+    int pts[];
+    if (dot(nn, outdir) >= 0) for (int i = 0; i < n; i++) { int pt = addpoint(0, p[i]); append(pts, pt); }
+    else                      for (int i = n - 1; i >= 0; i--) { int pt = addpoint(0, p[i]); append(pts, pt); }
+    setprimgroup(0, grp, addprim(0, "poly", pts), 1);
+}
+
+// raised flat shape from a 2D outline: front face at z, sides down to the wall
+void relief(vector O, U, V, N; float us[]; float vs[]; float z; string grp) {
+    int n = len(us);
+    vector front[]; float cu = 0, cv = 0;
+    float zz = z * chf("orn_relief");
+    for (int i = 0; i < n; i++) { vector q = to3(O, U, V, N, us[i], vs[i], zz); append(front, q); cu += us[i]; cv += vs[i]; }
+    cu /= n; cv /= n;
+    opoly(front, N, grp);
+    for (int i = 0; i < n; i++) {
+        int j = (i + 1) % n;
+        vector a = to3(O, U, V, N, us[i], vs[i], 0.003), b = to3(O, U, V, N, us[j], vs[j], 0.003);
+        vector mid = to3(O, U, V, N, (us[i] + us[j]) * 0.5, (vs[i] + vs[j]) * 0.5, 0);
+        oquad(a, b, front[j], front[i], mid - to3(O, U, V, N, cu, cv, 0), grp);
+    }
+}
+
+// half-round tube along a 2D polyline, radius per point
+void tube(vector O, U, V, N; float us[]; float vs[]; float rs[]; string grp) {
+    int n = len(us);
+    if (n < 2) return;
+    vector ring[];
+    for (int i = 0; i < n; i++) {
+        float du = us[min(i + 1, n - 1)] - us[max(i - 1, 0)];
+        float dv = vs[min(i + 1, n - 1)] - vs[max(i - 1, 0)];
+        float L = max(sqrt(du * du + dv * dv), 1e-6);
+        float su = -dv / L, sv = du / L;
+        for (int k = 0; k <= 4; k++) {
+            float a = PI * k / 4.0;
+            vector q = to3(O, U, V, N, us[i] + su * cos(a) * rs[i], vs[i] + sv * cos(a) * rs[i], sin(a) * rs[i] * 0.9 * chf("orn_relief") + 0.004);
+            append(ring, q);
+        }
+    }
+    for (int i = 0; i < n - 1; i++)
+        for (int k = 0; k < 4; k++) {
+            vector a = ring[i * 5 + k], b = ring[(i + 1) * 5 + k], c = ring[(i + 1) * 5 + k + 1], d = ring[i * 5 + k + 1];
+            vector axis = to3(O, U, V, N, (us[i] + us[i + 1]) * 0.5, (vs[i] + vs[i + 1]) * 0.5, 0);
+            oquad(a, b, c, d, (a + b + c + d) * 0.25 - axis, grp);
+        }
+}
+
+void leaf(vector O, U, V, N; float bu, bv, dir_u, dir_v, L, w, z; string grp) {
+    // (VEX passes arguments by reference: copy before changing, so literals can be passed in)
+    float ls = chf("orn_leaf");
+    float Ls = L * ls, ws = w * ls;
+    float dl = max(sqrt(dir_u * dir_u + dir_v * dir_v), 1e-6);
+    float du = dir_u / dl, dv = dir_v / dl;
+    float su = -dv, sv = du;
+    float us[], vs[], ru[], rv[];
+    int n = 8;
+    for (int i = 0; i <= n; i++) {
+        float t = float(i) / n, ww = ws * pow(sin(PI * t), 0.8);
+        float cu = bu + du * Ls * t, cv = bv + dv * Ls * t;
+        append(us, cu + su * ww); append(vs, cv + sv * ww);
+        append(ru, cu - su * ww); append(rv, cv - sv * ww);
+    }
+    for (int i = n - 1; i >= 1; i--) { append(us, ru[i]); append(vs, rv[i]); }
+    relief(O, U, V, N, us, vs, z, grp);
+}
+
+void rosette(vector O, U, V, N; float cu, cv, r, z; string grp) {
+    float us[], vs[];
+    for (int i = 0; i < 12; i++) { float a = 2 * PI * i / 12; append(us, cu + cos(a) * r); append(vs, cv + sin(a) * r); }
+    relief(O, U, V, N, us, vs, z, grp);
+    float us2[], vs2[];
+    for (int i = 0; i < 10; i++) { float a = 2 * PI * i / 10; append(us2, cu + cos(a) * r * 0.5); append(vs2, cv + sin(a) * r * 0.5); }
+    relief(O, U, V, N, us2, vs2, z * 1.7, grp);
+}
+
+// log spiral from p toward centre c
+void spiral(float cu, cv, pu, pv, turns, decay, sgn; int n; export float us[]; export float vs[]) {
+    resize(us, 0); resize(vs, 0);
+    float r0 = sqrt((pu - cu) * (pu - cu) + (pv - cv) * (pv - cv)), a0 = atan2(pv - cv, pu - cu);
+    for (int i = 0; i <= n; i++) {
+        float ct = chf("orn_curl");
+        float th = turns * ct * 2 * PI * i / n, r = r0 * exp(-decay * th), a = a0 + sgn * th;
+        append(us, cu + r * cos(a)); append(vs, cv + r * sin(a));
+    }
+}
+
+void tapered(float r0, r1; int n; export float rs[]) {
+    resize(rs, 0);
+    for (int i = 0; i <= n; i++) append(rs, lerp(r0, r1, float(i) / n));
+}
+
+// ---------- motifs ----------
+// gc = group for curves, gl = group for leaves + rosettes (two-tone colouring)
+void running_scroll(vector O, U, V, N; float W, H; int acanthus; string gc, gl) {
+    float lam = H * 2.4 * chf("orn_repeat");
+    int cnt = max(1, int(rint(W / lam)));
+    lam = W / cnt;
+    float A = H * 0.2, rs = H * (acanthus ? 0.065 : 0.055);
+    int n = max(24, 48 * cnt);
+    float su[], sv[], sr[];
+    for (int i = 0; i <= n; i++) { float u = W * i / n; append(su, -W * 0.5 + u); append(sv, A * sin(2 * PI * u / lam)); append(sr, rs); }
+    tube(O, U, V, N, su, sv, sr, gc);
+    for (int j = 0; j < 2 * cnt; j++) {
+        float s = j % 2 == 0 ? 1 : -1;
+        float uc = -W * 0.5 + (j + 0.25) * lam * 0.5 + lam * 0.125;
+        float cu = uc + lam * 0.16, cv = -s * H * 0.04;
+        float spu[], spv[], spr[];
+        spiral(cu, cv, uc, s * A * 0.9, 1.15, 0.26, -s, 30, spu, spv);
+        tapered(rs, rs * 0.4, 30, spr);
+        tube(O, U, V, N, spu, spv, spr, gc);
+        rosette(O, U, V, N, cu, cv, H * (acanthus ? 0.11 : 0.09), rs * 1.3, gl);
+        if (acanthus) {                                   // fat, layered leaves fanning off every crest
+            leaf(O, U, V, N, uc - lam * 0.05, s * A, -0.2, s * 1.0, H * 0.34, H * 0.16, rs * 1.2, gl);
+            leaf(O, U, V, N, uc - lam * 0.05, s * A, -0.8, s * 0.6, H * 0.36, H * 0.15, rs * 1.0, gl);
+            leaf(O, U, V, N, uc - lam * 0.05, s * A, -1.0, s * 0.05, H * 0.32, H * 0.13, rs * 0.9, gl);
+            leaf(O, U, V, N, cu, cv, 0.6, -s * 0.8, H * 0.22, H * 0.1, rs * 0.9, gl);
+        } else {
+            leaf(O, U, V, N, uc - lam * 0.05, s * A, -0.45, s * 1.0, H * 0.28, H * 0.11, rs * 1.1, gl);
+            leaf(O, U, V, N, uc - lam * 0.05, s * A, -1.0, s * 0.25, H * 0.3, H * 0.1, rs * 1.1, gl);
+        }
+    }
+}
+
+// Greek key / fret: a row of square "keys" on a continuous base and top line (Stick style)
+void fret(vector O, U, V, N; float W, H; string gc) {
+    float h = H * 0.8, unit = h * 1.1 * chf("orn_repeat");
+    int cnt = max(1, int(floor(W / unit)));
+    unit = W / cnt;
+    float r = h * 0.05, x0 = -W * 0.5, b = -h * 0.5;
+    float top_u[] = array(x0, x0 + W), top_v[] = array(b + h, b + h), rr[] = array(r, r);
+    tube(O, U, V, N, top_u, top_v, rr, gc);
+    float ku[] = array(0.0, 1.0, 1.0, 0.2, 0.2, 0.62, 0.62);
+    float kv[] = array(0.0, 0.0, 0.82, 0.82, 0.3, 0.3, 0.6);
+    for (int c = 0; c < cnt; c++) {
+        float us[], vs[], rs[];
+        for (int i = 0; i < 7; i++) { append(us, x0 + (c + ku[i]) * unit); append(vs, b + kv[i] * h); append(rs, r); }
+        tube(O, U, V, N, us, vs, rs, gc);
+    }
+}
+
+// garland: leafy swags hanging between bows, with a drop under each bow (Queen Anne)
+void garland(vector O, U, V, N; float W, H; string gc, gl) {
+    float span = H * 2.2 * chf("orn_repeat");
+    int cnt = max(1, int(rint(W / span)));
+    span = W / cnt;
+    float top = H * 0.3, sag = -H * 0.22, rs = H * 0.06;
+    for (int j = 0; j < cnt; j++) {
+        float u0 = -W * 0.5 + j * span, u1 = u0 + span;
+        float us[], vs[], rr[];
+        int n = 20;
+        for (int i = 0; i <= n; i++) {
+            float t = float(i) / n;
+            append(us, lerp(u0, u1, t)); append(vs, top + (sag - top) * 4 * t * (1 - t)); append(rr, rs * (0.6 + 0.6 * sin(PI * t)));
+        }
+        tube(O, U, V, N, us, vs, rr, gc);
+        for (int i = 2; i < n - 1; i += 2) {                     // leaves along the swag
+            float t = float(i) / n, side = (i / 2) % 2 == 0 ? 1 : -1;
+            float du = us[i + 1] - us[i - 1], dv = vs[i + 1] - vs[i - 1];
+            leaf(O, U, V, N, us[i], vs[i], du - side * dv * 0.8, dv + side * du * 0.8, H * 0.16, H * 0.06, rs * 1.0, gl);
+        }
+    }
+    for (int j = 0; j <= cnt; j++) {                             // bows + drops
+        float u = -W * 0.5 + j * span;
+        rosette(O, U, V, N, u, top, H * 0.08, rs * 1.3, gl);
+        float du_[] = array(u, u), dv_[] = array(top - H * 0.05, top - H * 0.32), dr[] = array(rs * 0.6, rs * 0.4);
+        tube(O, U, V, N, du_, dv_, dr, gc);
+        leaf(O, U, V, N, u, top - H * 0.3, 0, -1, H * 0.16, H * 0.06, rs, gl);
+    }
+}
+
+void corner_spray(vector O, U, V, N; float W, H; string gc, gl) {
+    float rs = min(W, H) * 0.032;
+    int n = 30;
+    float su[], sv[], sr[];
+    for (int i = 0; i <= n; i++) {
+        float t = float(i) / n, u = 0.1 * W + t * 0.7 * W, lim = H * (1 - u / W);
+        float v = 0.12 * H + (0.5 * lim - 0.12 * H) * sin(PI * min(t * 1.15, 1.0));
+        v = max(min(v, 0.6 * lim), 0.06 * H);
+        append(su, u); append(sv, v); append(sr, rs * (1 - 0.5 * t));
+    }
+    tube(O, U, V, N, su, sv, sr, gc);
+    float ts[] = array(0.12, 0.32, 0.52, 0.72, 0.9);
+    for (int k = 0; k < 5; k++) {
+        int i = min(n, int(ts[k] * n));
+        float pu = su[i], pv = sv[i], up = k % 2 == 0 ? 1 : -1;
+        float room = up > 0 ? H * (1 - pu / W) - pv : pv;
+        float size = max(min(room * 0.62, W * 0.16), 0.02);
+        float spu[], spv[], spr[];
+        spiral(pu + size * 0.5, pv + up * size * 0.8, pu, pv, 0.95, 0.33, -up, 24, spu, spv);
+        tapered(rs * 0.85, rs * 0.34, 24, spr);
+        tube(O, U, V, N, spu, spv, spr, gc);
+        leaf(O, U, V, N, pu, pv, -0.35, up, size * 1.15, size * 0.36, rs * 1.1, gl);
+    }
+    rosette(O, U, V, N, 0.08 * W, 0.12 * H, min(W, H) * 0.07, rs * 1.3, gl);
+    leaf(O, U, V, N, 0.08 * W, 0.12 * H, 0.1, 1.0, H * 0.42, min(W, H) * 0.09, rs * 1.1, gl);
+}
+
+void sunburst(vector O, U, V, N; float W, H; string gc, gl) {
+    float R = min(W * 0.36, H * 0.62), rs = R * 0.035, base = H * 0.04;
+    int nr = 9;
+    for (int i = 0; i < nr; i++) {
+        float a = PI * (0.08 + 0.84 * i / (nr - 1.0));
+        float us[] = array(0.18 * R * cos(a), R * cos(a));
+        float vs[] = array(0.18 * R * sin(a) + base, R * sin(a) + base);
+        float rr[] = array(rs, rs * 0.5);
+        tube(O, U, V, N, us, vs, rr, gc);
+        leaf(O, U, V, N, R * cos(a), R * sin(a) + base, cos(a), sin(a), R * 0.22, R * 0.09, rs * 1.2, gl);
+    }
+    rosette(O, U, V, N, 0, base, R * 0.2, rs * 1.4, gl);
+}
+
+// fan: a half disc of raised wedges (alternate wedges raised), like a carved shell
+void fan(vector O, U, V, N; float W, H; string gc, gl) {
+    float R = min(W * 0.3, H * 0.55), base = H * 0.03;
+    int nw = 11;
+    for (int i = 0; i < nw; i++) {
+        if (i % 2 == 1) continue;
+        float a0 = PI * i / nw, a1 = PI * (i + 1) / nw;
+        float us[] = array(0.0, R * cos(a0), R * cos((a0 + a1) * 0.5) * 1.03, R * cos(a1));
+        float vs[] = array(base, R * sin(a0) + base, R * sin((a0 + a1) * 0.5) * 1.03 + base, R * sin(a1) + base);
+        relief(O, U, V, N, us, vs, R * 0.04, gl);
+    }
+    float au[], av[], ar[];
+    for (int i = 0; i <= 24; i++) { float a = PI * i / 24; append(au, R * 1.06 * cos(a)); append(av, R * 1.06 * sin(a) + base); append(ar, R * 0.03); }
+    tube(O, U, V, N, au, av, ar, gc);
+    rosette(O, U, V, N, 0, base, R * 0.16, R * 0.05, gl);
+}
+
+// medallion: an oval rosette with leaves either side
+void medallion(vector O, U, V, N; float W, H; string gc, gl) {
+    float R = min(W * 0.14, H * 0.32), cy = H * 0.42;
+    float us[], vs[];
+    for (int i = 0; i < 20; i++) { float a = 2 * PI * i / 20; append(us, cos(a) * R * 0.8); append(vs, cy + sin(a) * R); }
+    relief(O, U, V, N, us, vs, R * 0.08, gl);
+    float ru[], rv[], rr[];
+    for (int i = 0; i <= 20; i++) { float a = 2 * PI * i / 20; append(ru, cos(a) * R * 0.95); append(rv, cy + sin(a) * R * 1.15); append(rr, R * 0.05); }
+    tube(O, U, V, N, ru, rv, rr, gc);
+    rosette(O, U, V, N, 0, cy, R * 0.45, R * 0.14, gl);
+    for (int s = -1; s <= 1; s += 2) {
+        leaf(O, U, V, N, s * R * 0.9, cy, s * 1.0, 0.25, R * 0.95, R * 0.28, R * 0.07, gl);
+        leaf(O, U, V, N, s * R * 0.9, cy, s * 1.0, -0.35, R * 0.8, R * 0.24, R * 0.07, gl);
+    }
+}
+
+// ---------- choices (asset's Ornament tab; "Auto" follows the house style) ----------
+int style = detail(1, "style");                        // 0 Italianate, 1 Stick, 2 Queen Anne
+int density = chi("orn_density") > 0 ? chi("orn_density") - 1 : (style == 2 ? 2 : 1);   // 0 plain, 1 restrained, 2 lavish
+int scroll  = chi("orn_scroll")  > 0 ? chi("orn_scroll")  - 1 : (style == 0 ? 1 : (style == 1 ? 2 : 0));  // 0 vine 1 acanthus 2 fret 3 garland
+if (chi("orn_scroll") == 0 && style == 2 && rand_range(0, 1, 130) < 0.4) scroll = 3;   // some Queen Annes get garlands
+int peak    = chi("orn_peak")    > 0 ? chi("orn_peak")    - 1 : (style == 1 ? 1 : (style == 0 ? 3 : 0));  // 0 sunburst 1 fan 2 spray 3 medallion
+string gc = "trim", gl = chi("orn_colour") == 1 ? "ornament" : "trim";
+if (chi("orn_colour") == 2) gc = "ornament";
+
+// ---------- every slot ----------
+int slots[] = findattribval(0, "point", "name", "orn_slot");
+for (int k = 0; k < len(slots); k++) {
+    int sp = slots[k];
+    vector O = point(0, "P", sp);
+    vector U = normalize(point(0, "orn_u", sp)), N = normalize(point(0, "orn_n", sp));
+    vector V = normalize(cross(N, U));
+    if (V.y < 0) V = -V;                                  // "up" is always up
+    float W = point(0, "orn_w", sp), H = point(0, "orn_h", sp);
+    int type = point(0, "orn_type", sp);
+    if (W < 0.2 || H < 0.1 || density == 0) continue;
+    if (type == 1) {
+        if      (scroll == 2) fret(O, U, V, N, W, H, gc);
+        else if (scroll == 3) garland(O, U, V, N, W, H, gc, gl);
+        else                  running_scroll(O, U, V, N, W, H, scroll == 1, gc, gl);
+    }
+    else if (density < 2) continue;                       // restrained: friezes only
+    else if (type == 2) corner_spray(O, U, V, N, W, H, gc, gl);
+    else if (type == 3) {
+        if      (peak == 1) fan(O, U, V, N, W, H, gc, gl);
+        else if (peak == 2) { corner_spray(O, U, V, N, W * 0.5, H, gc, gl); corner_spray(O, -U, V, N, W * 0.5, H, gc, gl); }
+        else if (peak == 3) medallion(O, U, V, N, W, H, gc, gl);
+        else                sunburst(O, U, V, N, W, H, gc, gl);
+    }
+}
+for (int k = 0; k < len(slots); k++) removepoint(0, slots[k]);

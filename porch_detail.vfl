@@ -1,0 +1,175 @@
+// =====================================================================
+// porch_detail  —  Attribute Wrangle, Run Over: Detail
+//   input 1: empty      input 2: entry_params      input 3: stair_params
+//
+// Dresses the plain porch parts (column tubes, beam box, newel boxes) with Victorian detail:
+//   columns : square plinth + base rings at the foot, necking + capital rings + abacus at the top
+//   brackets: a scroll bracket each side of every column, up under the beam
+//   beam    : architrave band, an accent frieze panel, dentil row, bed mould + crown
+//   arch    : (some porches) a shallow arched band spanning between the columns
+//   newels  : plinth, raised panel on every face, collar under the cap
+//   landing : a nosing along the top step edge
+// Groups: trim | ornament (pop colour) | panel_field (accent colour)
+// =====================================================================
+#include "facade_lib.h"
+
+// ring of 'sides' facets around a vertical axis: a short drum from y0 to y1, radius r
+void ring(vector c; float r, y0, y1; int sides; string grp) {
+    int lo[], hi[];
+    for (int k = 0; k < sides; k++) {
+        float a = 2 * PI * k / sides;
+        vector o = set(cos(a) * r, 0, sin(a) * r);
+        append(lo, addpoint(0, set(c.x, y0, c.z) + o));
+        append(hi, addpoint(0, set(c.x, y1, c.z) + o));
+    }
+    for (int k = 0; k < sides; k++) {
+        int n = (k + 1) % sides;
+        setprimgroup(0, grp, addprim(0, "poly", array(hi[n], hi[k], lo[k], lo[n])), 1);   // faces out
+    }
+    setprimgroup(0, grp, addprim(0, "poly", hi), 1);                                      // top
+    setprimgroup(0, grp, addprim(0, "poly", reverse(lo)), 1);                             // bottom
+}
+
+// one curved band following a segmental arch
+void arch_band(float l, r, base_y, rise, band_h, z0, z1; int segs; string grp) {
+    vector lo[], hi[];
+    for (int k = 0; k <= segs; k++) {
+        float x = lerp(l, r, float(k) / segs);
+        float y = arch_height_at(x, l, r, base_y + rise, rise);
+        append(lo, set(x, y, 0)); append(hi, set(x, y + band_h, 0));
+    }
+    vector a = set(0, 0, z0), b = set(0, 0, z1);
+    for (int k = 0; k < segs; k++) {
+        add_quad(lo[k] + b, hi[k] + b, hi[k+1] + b, lo[k+1] + b, grp);
+        add_quad(hi[k] + b, hi[k] + a, hi[k+1] + a, hi[k+1] + b, grp);
+        add_quad(lo[k] + a, lo[k] + b, lo[k+1] + b, lo[k+1] + a, grp);
+    }
+    add_quad(lo[0] + a, hi[0] + a, hi[0] + b, lo[0] + b, grp);
+    add_quad(lo[segs] + a, lo[segs] + b, hi[segs] + b, hi[segs] + a, grp);
+}
+
+void emit_slot(int type; vector P, u, n; float w, h) {
+    int pt = addpoint(0, P);
+    setpointattrib(0, "name", pt, "orn_slot");
+    setpointattrib(0, "orn_type", pt, type);
+    setpointattrib(0, "orn_u", pt, u);
+    setpointattrib(0, "orn_n", pt, n);
+    setpointattrib(0, "orn_w", pt, w);
+    setpointattrib(0, "orn_h", pt, h);
+}
+
+int porch = detail(1, "porch");
+
+// ---------- porch: columns, brackets, beam, arch ----------
+if (porch) {
+    float px0 = detail(1, "porch_x0"), px1 = detail(1, "porch_x1");
+    float y0  = detail(1, "oy0"),      y1  = detail(1, "beam_y0");
+    float r   = detail(1, "col_r"),    cz  = detail(1, "col_z");
+    float bh  = detail(1, "beam_h"),   ov  = detail(1, "overhang");
+    int   ped = detail(1, "pediment");
+    float front = cz + r + ov;                       // front face of the beam
+    float colx[];
+    append(colx, px0 + r); append(colx, px1 - r);
+
+    for (int ci = 0; ci < 2; ci++) {
+        float cx = colx[ci];
+        vector c = set(cx, 0, cz);
+        // foot: square plinth + two base rings
+        add_box(set(cx - r * 1.45, y0, cz - r * 1.45), set(cx + r * 1.45, y0 + 0.16, cz + r * 1.45), "trim");
+        ring(c, r * 1.32, y0 + 0.16, y0 + 0.22, 16, "trim");
+        ring(c, r * 1.15, y0 + 0.22, y0 + 0.27, 16, "trim");
+        // head: necking ring, capital (wider ring), square abacus
+        ring(c, r * 1.12, y1 - 0.30, y1 - 0.26, 16, "trim");
+        ring(c, r * 1.25, y1 - 0.18, y1 - 0.10, 16, "ornament");
+        add_box(set(cx - r * 1.5, y1 - 0.10, cz - r * 1.5), set(cx + r * 1.5, y1, cz + r * 1.5), "trim");
+        // scroll brackets each side of the column, up under the beam
+        float bh_b = min(0.55, (y1 - y0) * 0.22);
+        scroll_bracket(set(cx + r, y1, cz), {0, 0, 1}, {1, 0, 0}, 0.07, bh_b, 0.38, "bracket");
+        scroll_bracket(set(cx - r, y1, cz), {0, 0, -1}, {-1, 0, 0}, 0.07, bh_b, 0.38, "bracket");
+    }
+
+    // beam: architrave band at the bottom, accent frieze panel, dentils, bed mould, crown
+    float bl = px0 - ov, br = px1 + ov;
+    add_box(set(bl, y1, front - 0.02), set(br, y1 + 0.08, front + 0.03), "trim");                         // architrave
+    add_box(set(bl + 0.15, y1 + 0.12, front), set(br - 0.15, y1 + bh - 0.12, front + 0.015), "panel_field"); // frieze panel
+    if (bh - 0.24 > 0.12)
+        emit_slot(1, set((bl + br) * 0.5, y1 + bh * 0.5, front + 0.015), {1, 0, 0}, {0, 0, 1}, br - bl - 0.4, (bh - 0.24) * 0.8);
+    for (float x = bl + 0.06; x < br - 0.08; x += 0.11)
+        add_box(set(x, y1 + bh - 0.1, front - 0.02), set(x + 0.055, y1 + bh - 0.04, front + 0.05), "ornament");   // dentils
+    add_box(set(bl - 0.03, y1 + bh - 0.04, -0.05), set(br + 0.03, y1 + bh, front + 0.07), "trim");          // bed mould
+    if (!ped)
+        add_box(set(bl - 0.08, y1 + bh, -0.05), set(br + 0.08, y1 + bh + 0.06, front + 0.14), "trim");     // crown over the flat cap
+
+    // shallow arch between the columns (about half the porches)
+    if (rand_range(0, 1, 47) < chf("porch_arch_chance")) {
+        float al = colx[0] + r * 1.5, ar = colx[1] - r * 1.5;
+        float rise = min((ar - al) * 0.18, 0.35);
+        arch_band(al, ar, y1 - rise - 0.14, rise, 0.14, cz - 0.05, cz + 0.05, 14, "trim");
+    }
+}
+
+// ---------- stairs: dress the newels + landing nosing ----------
+for (int p = 0; p < npoints(2); p++) {
+    string nm = point(2, "name", p);
+    vector P  = point(2, "P", p), S = point(2, "scale", p);
+    if (nm == "newel") {
+        float hx = S.x * 0.5, hz = S.z * 0.5, h = S.y;
+        add_box(set(P.x - hx * 1.18, P.y, P.z - hz * 1.18), set(P.x + hx * 1.18, P.y + 0.14, P.z + hz * 1.18), "trim");   // plinth
+        add_box(set(P.x - hx * 1.14, P.y + h - 0.1, P.z - hz * 1.14), set(P.x + hx * 1.14, P.y + h - 0.04, P.z + hz * 1.14), "trim"); // collar
+        // a framed raised panel on each face, mid-height: trim frame + accent field
+        float pb = P.y + h * 0.28, pt = P.y + h * 0.74, ins = 0.028, fw = 0.018;
+        for (int f = 0; f < 4; f++) {
+            // face frame: (u axis, outward normal) per side
+            vector nrm = f == 0 ? {0, 0, 1} : (f == 1 ? {0, 0, -1} : (f == 2 ? {1, 0, 0} : {-1, 0, 0}));
+            vector u = abs(nrm.z) > 0.5 ? {1, 0, 0} : {0, 0, 1};
+            float hwid = abs(nrm.z) > 0.5 ? hx : hz, dep = abs(nrm.z) > 0.5 ? hz : hx;
+            vector c0 = set(P.x, 0, P.z) + nrm * dep;
+            // frame (4 strips) then the field, standing proud of the shaft
+            vector lo = c0 - u * (hwid - ins), hi = c0 + u * (hwid - ins);
+            add_box(min(lo + set(0, pb, 0), hi + set(0, pb + fw, 0) + nrm * 0.014), max(lo + set(0, pb, 0), hi + set(0, pb + fw, 0) + nrm * 0.014), "trim");
+            add_box(min(lo + set(0, pt - fw, 0), hi + set(0, pt, 0) + nrm * 0.014), max(lo + set(0, pt - fw, 0), hi + set(0, pt, 0) + nrm * 0.014), "trim");
+            add_box(min(lo + set(0, pb, 0), lo + u * fw + set(0, pt, 0) + nrm * 0.014), max(lo + set(0, pb, 0), lo + u * fw + set(0, pt, 0) + nrm * 0.014), "trim");
+            add_box(min(hi - u * fw + set(0, pb, 0), hi + set(0, pt, 0) + nrm * 0.014), max(hi - u * fw + set(0, pb, 0), hi + set(0, pt, 0) + nrm * 0.014), "trim");
+            vector flo = lo + u * (fw + 0.01) + set(0, pb + fw + 0.01, 0), fhi = hi - u * (fw + 0.01) + set(0, pt - fw - 0.01, 0) + nrm * 0.022;
+            add_box(min(flo, fhi), max(flo, fhi), "panel_field");
+            // a small carved rosette in the middle of the field (pop colour)
+            vector rc = (flo + fhi) * 0.5 + nrm * 0.012;
+            float rr = min(hwid * 0.35, 0.035);
+            add_box(min(rc - u * rr - set(0, rr, 0), rc + u * rr + set(0, rr, 0) + nrm * 0.012),
+                    max(rc - u * rr - set(0, rr, 0), rc + u * rr + set(0, rr, 0) + nrm * 0.012), "ornament");
+        }
+    }
+    else if (nm == "newel_cap") {
+        // a proper Victorian newel top: stepped bed mould under an overhanging cap, a low hipped top,
+        // then a turned finial (neck, ball, spike)
+        float hx = S.x * 0.5, hz = S.z * 0.5, y = P.y, h = S.y;
+        add_box(set(P.x - hx * 0.95, y - 0.05, P.z - hz * 0.95), set(P.x + hx * 0.95, y, P.z + hz * 0.95), "trim");             // bed mould
+        add_box(set(P.x - hx * 1.12, y + h, P.z - hz * 1.12), set(P.x + hx * 1.12, y + h + 0.035, P.z + hz * 1.12), "trim");   // cap overhang
+        // hipped top
+        float ty = y + h + 0.035, tr = max(hx, hz) * 1.05, th = tr * 0.45;
+        vector c = set(P.x, ty + th, P.z);
+        vector q[] = array(set(P.x - hx * 1.05, ty, P.z - hz * 1.05), set(P.x + hx * 1.05, ty, P.z - hz * 1.05),
+                           set(P.x + hx * 1.05, ty, P.z + hz * 1.05), set(P.x - hx * 1.05, ty, P.z + hz * 1.05));
+        for (int k2 = 0; k2 < 4; k2++) {
+            int j2 = (k2 + 1) % 4;
+            int pp[] = array(addpoint(0, q[k2]), addpoint(0, c), addpoint(0, q[j2]));
+            setprimgroup(0, "trim", addprim(0, "poly", pp), 1);
+        }
+        // finial: neck, ball (stacked drums), spike
+        float br = min(hx, hz) * 0.55;
+        vector fb = c - set(0, th * 0.35, 0);
+        ring(fb, br * 0.35, fb.y, fb.y + br * 0.5, 12, "trim");
+        float by0 = fb.y + br * 0.5;
+        for (int i = 0; i < 6; i++) {
+            float a0 = -PI * 0.5 + PI * i / 6, a1 = -PI * 0.5 + PI * (i + 1) / 6;
+            float rr = br * cos((a0 + a1) * 0.5);
+            ring(fb, rr, by0 + br * (1 + sin(a0)), by0 + br * (1 + sin(a1)), 14, "ornament");
+        }
+        ring(fb, br * 0.12, by0 + br * 2, by0 + br * 2.6, 8, "ornament");
+    }
+    else if (nm == "landing") {
+        float hx = S.x * 0.5;
+        float top = P.y + S.y, zf = P.z + S.z * 0.5;
+        add_box(set(P.x - hx - 0.02, top - 0.05, zf - 0.02), set(P.x + hx + 0.02, top, zf + 0.035), "trim");   // nosing
+    }
+}

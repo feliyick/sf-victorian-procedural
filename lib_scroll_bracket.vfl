@@ -1,0 +1,39 @@
+
+// ---------- Section 5: ornament ----------
+// Scroll bracket (corbel): an S-curved (ogee) side profile, extruded across its width.
+//   o      = point on the wall at the bracket's TOP centre
+//   across = along the wall, out = away from the wall (both horizontal unit vectors)
+//   w = width, h = height (hangs down from o), d = depth out from the wall
+void scroll_bracket(vector o, across, out; float w, h, d; string grp) {
+    vector up = {0, 1, 0};
+    int flip = dot(cross(across, out), up) < 0;         // keep faces pointing out whatever the frame
+    float po[], pu[];                                   // profile: (out, up) measured from the bracket bottom
+    append(po, 0.0); append(pu, h);
+    append(po, d);   append(pu, h);
+    append(po, d);   append(pu, h * 0.85);
+    int n = 10;
+    for (int i = 1; i <= n; i++) {
+        float v = float(i) / n;
+        append(po, d * (0.22 + 0.78 * 0.5 * (1 + cos(PI * v))));
+        append(pu, h * 0.85 - v * h * 0.7);
+    }
+    append(po, d * 0.30); append(pu, h * 0.10);
+    append(po, d * 0.22); append(pu, 0.0);
+    append(po, 0.0);      append(pu, 0.0);
+    int m = len(po);
+    int L[], R[];
+    for (int i = 0; i < m; i++) {
+        vector base = o + out * po[i] + up * (pu[i] - h);
+        append(L, addpoint(0, base - across * (w * 0.5)));
+        append(R, addpoint(0, base + across * (w * 0.5)));
+    }
+    int lf[] = reverse(L), rf[] = R;
+    if (flip) { lf = L; rf = reverse(R); }
+    setprimgroup(0, grp, addprim(0, "poly", lf), 1);
+    setprimgroup(0, grp, addprim(0, "poly", rf), 1);
+    for (int i = 0; i < m; i++) {
+        int j = (i + 1) % m;
+        int q[] = flip ? array(R[i], R[j], L[j], L[i]) : array(L[i], L[j], R[j], R[i]);
+        setprimgroup(0, grp, addprim(0, "poly", q), 1);
+    }
+}

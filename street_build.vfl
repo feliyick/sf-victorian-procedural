@@ -1,0 +1,810 @@
+// =====================================================================
+// street_build  —  Attribute Wrangle, Run Over: Detail
+//   input 1: OUT_STREET (the three houses, already moved into place)
+//
+// Builds the street the houses stand on, on a hill (x runs along the street, downhill to +x,
+// the facades face +z):
+//   sidewalk  : 1.5 m concrete slabs, each slightly tinted and tilted, dark joints between
+//   curb      : granite, cut down in front of every garage (found from the houses' garage doors)
+//   gutter, asphalt (patched), double yellow centre line, far kerb + sidewalk
+//   per house : concrete foundation where the hill drops away, a pad under the stoop,
+//               a ramp up to the garage, a side gate in each gap between houses
+//   dressing  : street trees in tree wells, lamp posts, a Muni stop, fire hydrant(s),
+//               overhead trolley wires on span wires, a manhole, fallen leaves
+// Every face gets s@path = /street/<material>, v@Cd (linear), s@material, s@paint = "street".
+// Controls: spare parms on this node (driven by STREET_CONTROLS): slope, gap, seed, trees, leaves.
+// =====================================================================
+
+#include "street_lib.h"
+
+// is x within 'm' of any house's stoop (stairs reach out across the sidewalk)?
+int near_stairs(float x, m; float smn[]; float smx[]) {
+    for (int h = 0; h < len(smn) / 5; h++)
+        if (smn[h * 5] < smx[h * 5] && x > smn[h * 5] - m && x < smx[h * 5] + m) return 1;
+    return 0;
+}
+// driveway height at (x, z): garage sill at the facade -> sidewalk level -> street level at the curb cut
+float drive_y(float x, z, sill, sw1, ch; int inner) {
+    float base = gy(x);
+    if (!inner) return base;
+    if (z < 1.0) return lerp(sill, base, smooth(0, 1, z / 1.0));
+    if (z > sw1 - 1.1) return lerp(base, base - ch + 0.025, smooth(0, 1, (z - (sw1 - 1.1)) / 1.1));
+    return base;
+}
+// a driveway: a sloped concrete apron with flared sides, scored every metre
+void driveway(float d0, d1, F, sill, sw1, ch) {
+    float xs[] = array(d0 - F, d0, d1, d1 + F);
+    int inn[] = array(0, 1, 1, 0);
+    int nz = 14;
+    vector tint = {0.76, 0.75, 0.72};
+    for (int j = 0; j < nz; j++) {
+        float z0 = sw1 * j / nz, z1 = sw1 * (j + 1) / nz;
+        for (int c = 0; c < 3; c++) {
+            vector P[] = array(set(xs[c], drive_y(xs[c], z0, sill, sw1, ch, inn[c]), z0),
+                               set(xs[c + 1], drive_y(xs[c + 1], z0, sill, sw1, ch, inn[c + 1]), z0),
+                               set(xs[c + 1], drive_y(xs[c + 1], z1, sill, sw1, ch, inn[c + 1]), z1),
+                               set(xs[c], drive_y(xs[c], z1, sill, sw1, ch, inn[c]), z1));
+            face(P, {0, 1, 0}, "sidewalk", c == 1 ? tint : tint * 0.94);
+        }
+    }
+    // scoring lines across the apron
+    for (float zl = 0.9; zl < sw1 - 0.3; zl += 1.0) {
+        vector a = set(d0, drive_y(d0, zl, sill, sw1, ch, 1) + 0.002, zl), b = set(d1, drive_y(d1, zl, sill, sw1, ch, 1) + 0.002, zl);
+        face(array(a - {0, 0, 0.006}, b - {0, 0, 0.006}, b + {0, 0, 0.006}, a + {0, 0, 0.006}), {0, 1, 0}, "concrete", {0.3, 0.3, 0.29});
+    }
+    // front lip down to the gutter, and the side skirts
+    face(array(set(d0 - F, gy(d0 - F) - 0.4, sw1), set(d1 + F, gy(d1 + F) - 0.4, sw1),
+               set(d1 + F, drive_y(d1 + F, sw1, sill, sw1, ch, 0), sw1), set(d0 - F, drive_y(d0 - F, sw1, sill, sw1, ch, 0), sw1)),
+         {0, 0, 1}, "sidewalk", tint * 0.9);
+}
+// does [a, b] overlap any driveway (with flares)?
+int on_drive(float a, b; float g0[]; float g1[]; float F) {
+    for (int g = 0; g < len(g0); g++) if (a < g1[g] + 0.15 + F && b > g0[g] - 0.15 - F) return 1;
+    return 0;
+}
+// an oriented box in a car's frame (t forward, n up, b sideways)
+void obox(vector o, t, n, b; vector mn, mx; string mat; vector srgb) {
+    vector c[];
+    for (int i = 0; i < 8; i++)
+        append(c, o + t * (i % 2 ? mx.x : mn.x) + n * ((i / 2) % 2 ? mx.y : mn.y) + b * (i / 4 ? mx.z : mn.z));
+    face(array(c[2], c[3], c[7], c[6]), n, mat, srgb);
+    face(array(c[0], c[1], c[5], c[4]), -n, mat, srgb);
+    face(array(c[0], c[1], c[3], c[2]), -b, mat, srgb);
+    face(array(c[4], c[5], c[7], c[6]), b, mat, srgb);
+    face(array(c[0], c[2], c[6], c[4]), -t, mat, srgb);
+    face(array(c[1], c[3], c[7], c[5]), t, mat, srgb);
+}
+// piecewise-linear lookup
+float pw(float x; float xs[]; float ys[]) {
+    if (x <= xs[0]) return ys[0];
+    for (int i = 1; i < len(xs); i++)
+        if (x <= xs[i]) return lerp(ys[i - 1], ys[i], (x - xs[i - 1]) / max(xs[i] - xs[i - 1], 1e-6));
+    return ys[len(ys) - 1];
+}
+// a parked car built from a side profile: the silhouette (hood, windscreen, roof, rear) is extruded across the
+// car with the glasshouse leaning in (tumblehome), wheel arches cut into the sills, glass where the profile is
+// steep (windscreen / rear window) and along the side windows, a B-pillar, lights, tyres + hubcaps.
+// kind 0 sedan, 1 hatchback, 2 SUV, 3 van. steer: front-wheel angle (radians)
+void car(vector o, t, n, b; int kind; vector paint; float steer) {
+    float L, belt, hw = 0.88;
+    float kx[], ky[];
+    if (kind == 1)      { L = 3.9; belt = 0.95; kx = array(-0.5, -0.48, -0.43, -0.36, 0.1, 0.26, 0.47, 0.5); ky = array(0.55, 0.86, 1.22, 1.42, 1.45, 0.98, 0.84, 0.6); }
+    else if (kind == 2) { L = 4.6; belt = 1.12; hw = 0.93; kx = array(-0.5, -0.49, -0.45, 0.12, 0.27, 0.47, 0.5); ky = array(0.62, 1.06, 1.72, 1.75, 1.13, 1.0, 0.72); }
+    else if (kind == 3) { L = 4.9; belt = 1.15; hw = 0.95; kx = array(-0.5, -0.49, -0.47, 0.28, 0.4, 0.48, 0.5); ky = array(0.62, 1.9, 1.96, 1.96, 1.22, 1.06, 0.76); }
+    else                { L = 4.5; belt = 0.92; kx = array(-0.5, -0.49, -0.37, -0.2, -0.08, 0.14, 0.26, 0.47, 0.5); ky = array(0.56, 0.82, 0.87, 0.9, 1.36, 1.38, 0.98, 0.84, 0.6); }
+    float wr = kind >= 2 ? 0.37 : 0.32, R = wr + 0.07, wxs = L * 0.31;
+    float sx[];
+    for (int i = 0; i <= 36; i++) append(sx, lerp(-L * 0.5, L * 0.5, i / 36.0));
+    for (int i = 0; i < len(kx); i++) append(sx, kx[i] * L);
+    sx = sort(sx);
+    float xs[], yt[], yb[];
+    for (int i = 0; i < len(sx); i++) {
+        float x = sx[i];
+        if (len(xs) > 0 && x - xs[len(xs) - 1] < 0.01) continue;
+        float bot = 0.22;
+        for (int w = -1; w <= 1; w += 2) {
+            float dx = x - w * wxs;
+            if (abs(dx) < R) bot = max(bot, wr + sqrt(R * R - dx * dx));
+        }
+        append(xs, x); append(yt, pw(x / L, kx, ky)); append(yb, bot);
+    }
+    int N = len(xs) - 1;
+    // side position of a profile point (the glasshouse leans in above the belt line)
+    float pillar_x = kind == 3 ? -0.05 * L : 0.02 * L;
+    for (int sd = -1; sd <= 1; sd += 2) {
+        for (int i = 0; i < N; i++) {
+            float x0 = xs[i], x1 = xs[i + 1];
+            float zb = sd * hw;
+            // lower body: sill (arch-cut) up to the belt line
+            float b0 = min(belt, yt[i]), b1 = min(belt, yt[i + 1]);
+            if (b0 > yb[i] || b1 > yb[i + 1])
+                face(array(o + t * x0 + n * yb[i] + b * zb, o + t * x1 + n * yb[i + 1] + b * zb,
+                           o + t * x1 + n * b1 + b * zb, o + t * x0 + n * b0 + b * zb), b * sd, "door", paint);
+            // glasshouse side: belt -> roof line, leaning in
+            if (yt[i] > belt + 0.02 || yt[i + 1] > belt + 0.02) {
+                float y0 = max(yt[i], belt), y1 = max(yt[i + 1], belt);
+                float in0 = (y0 - belt) * 0.22, in1 = (y1 - belt) * 0.22;
+                int pil = abs((x0 + x1) * 0.5 - pillar_x) < L / N * 0.6;
+                float top0 = max(belt, y0 - 0.05), top1 = max(belt, y1 - 0.05);
+                face(array(o + t * x0 + n * belt + b * zb, o + t * x1 + n * belt + b * zb,
+                           o + t * x1 + n * top1 + b * (zb - sd * in1), o + t * x0 + n * top0 + b * (zb - sd * in0)),
+                     b * sd, pil ? "door" : "glass_dark", pil ? paint : {0, 0, 0});
+                face(array(o + t * x0 + n * top0 + b * (zb - sd * in0), o + t * x1 + n * top1 + b * (zb - sd * in1),
+                           o + t * x1 + n * y1 + b * (zb - sd * (in1 + 0.012)), o + t * x0 + n * y0 + b * (zb - sd * (in0 + 0.012))),
+                     b * sd + n * 0.5, "door", paint);                                                         // roof rail
+            }
+        }
+    }
+    // the top surface across the car, glass where it is steep and above the belt (windscreen, rear window)
+    for (int i = 0; i < N; i++) {
+        float in0 = max(0.0, yt[i] - belt) * 0.22 + (yt[i] > belt ? 0.012 : 0), in1 = max(0.0, yt[i + 1] - belt) * 0.22 + (yt[i + 1] > belt ? 0.012 : 0);
+        vector a = o + t * xs[i] + n * yt[i], c = o + t * xs[i + 1] + n * yt[i + 1];
+        float slope = abs(yt[i + 1] - yt[i]) / (xs[i + 1] - xs[i]);
+        int glass = slope > 0.7 && min(yt[i], yt[i + 1]) > belt + 0.04;
+        face(array(a - b * (hw - in0), c - b * (hw - in1), c + b * (hw - in1), a + b * (hw - in0)),
+             n + t * ((yt[i] - yt[i + 1]) / (xs[i + 1] - xs[i])), glass ? "glass_dark" : "door", glass ? {0, 0, 0} : paint);
+    }
+    // nose + tail
+    face(array(o + t * xs[N] + n * yb[N] - b * hw, o + t * xs[N] + n * yb[N] + b * hw, o + t * xs[N] + n * yt[N] + b * hw, o + t * xs[N] + n * yt[N] - b * hw), t, "door", paint);
+    face(array(o + t * xs[0] + n * yb[0] - b * hw, o + t * xs[0] + n * yb[0] + b * hw, o + t * xs[0] + n * yt[0] + b * hw, o + t * xs[0] + n * yt[0] - b * hw), -t, "door", paint);
+    // rear window on upright tails (hatch / SUV / van): the glass sits on the near-vertical back
+    if (kind >= 1) {
+        float i0 = 1;                                    // the second sample is the top of the tail
+        float ytop = yt[1], xb = xs[1] - 0.004;
+        float hwt = hw - max(0.0, ytop - belt) * 0.22 - 0.08;
+        face(array(o + t * xb + n * (belt + 0.05) - b * hwt, o + t * xb + n * (belt + 0.05) + b * hwt,
+                   o + t * xb + n * (ytop - 0.1) + b * (hwt - 0.04), o + t * xb + n * (ytop - 0.1) - b * (hwt - 0.04)), -t, "glass_dark", {0, 0, 0});
+    }
+    // underside (dark) so the arches read
+    face(array(o + t * (-L * 0.5) + n * 0.24 - b * hw, o + t * (L * 0.5) + n * 0.24 - b * hw, o + t * (L * 0.5) + n * 0.24 + b * hw, o + t * (-L * 0.5) + n * 0.24 + b * hw), -n, "roof", {0, 0, 0});
+    // bumpers, lights, grille
+    obox(o, t, n, b, set(L * 0.5 - 0.06, 0.24, -hw + 0.03), set(L * 0.5 + 0.05, 0.42, hw - 0.03), "roof", {0.05, 0.05, 0.05});
+    obox(o, t, n, b, set(-L * 0.5 - 0.05, 0.24, -hw + 0.03), set(-L * 0.5 + 0.06, 0.42, hw - 0.03), "roof", {0.05, 0.05, 0.05});
+    float ln = pw(0.5, kx, ky), lt = pw(-0.5, kx, ky);
+    for (int k = 0; k < 2; k++) {
+        float zs = k ? 1 : -1;
+        obox(o, t, n, b, set(L * 0.5 + 0.001, ln - 0.16, zs * hw * 0.62 - 0.17), set(L * 0.5 + 0.02, ln - 0.05, zs * hw * 0.62 + 0.17), "street_paint", {0.95, 0.95, 0.9});
+        obox(o, t, n, b, set(-L * 0.5 - 0.02, lt - 0.16, zs * hw * 0.68 - 0.15), set(-L * 0.5 - 0.001, lt - 0.04, zs * hw * 0.68 + 0.15), "street_paint", {0.7, 0.08, 0.06});
+    }
+    obox(o, t, n, b, set(L * 0.5 + 0.001, ln - 0.32, -0.35), set(L * 0.5 + 0.015, ln - 0.2, 0.35), "roof", {0.03, 0.03, 0.03});
+    // wheels
+    for (int k = 0; k < 4; k++) {
+        float wx = (k < 2 ? 1 : -1) * wxs, wz = (k % 2 ? 1 : -1) * (hw - 0.13);
+        vector ax = b;
+        if (k < 2) ax = b * cos(steer) + t * sin(steer);
+        vector c = o + t * wx + n * wr + b * wz;
+        hcyl(c - ax * 0.11, c + ax * 0.11, wr, 18, "roof", {0, 0, 0});
+        hcyl(c + ax * (wz > 0 ? 0.11 : -0.125), c + ax * (wz > 0 ? 0.125 : -0.11), wr * 0.6, 14, "metal", {0.62, 0.62, 0.64});
+    }
+}
+// one arching blade (flax / grass / agave leaf): a tapered strip in 3 segments
+void blade(vector base, dir; float len, w, arch; vector col) {
+    vector side = normalize(cross(dir, {0, 1, 0}) + {0.0001, 0, 0});
+    vector p[], q[];
+    for (int i = 0; i <= 3; i++) {
+        float t = i / 3.0;
+        vector c = base + dir * len * t - set(0, arch * t * t * len, 0);
+        float ww = w * (1 - t * 0.9);
+        append(p, c - side * ww); append(q, c + side * ww);
+    }
+    for (int i = 0; i < 3; i++) face(array(p[i], p[i + 1], q[i + 1], q[i]), cross(p[i + 1] - p[i], side), "leaf", col);
+}
+// SF sidewalk-garden plants
+void flax(vector base; float h; int id; vector col) {                 // New Zealand flax (phormium): a fan of tall swords
+    for (int i = 0; i < 14; i++) {
+        float a = 2 * PI * rand(id * 7 + i), tilt = 0.15 + 0.35 * rand(id * 11 + i);
+        vector d = normalize(set(cos(a) * tilt, 1, sin(a) * tilt * 0.6));
+        blade(base, d, h * (0.7 + 0.3 * rand(id * 13 + i)), 0.035, 0.15 + 0.3 * tilt, col * (0.85 + 0.3 * rand(id * 17 + i)));
+    }
+}
+void agave(vector base; float r; int id; vector col) {                // agave / aeonium rosette: short thick leaves
+    for (int ring = 0; ring < 3; ring++)
+        for (int i = 0; i < 8; i++) {
+            float a = 2 * PI * (i + ring * 0.33) / 8;
+            float up = 0.25 + ring * 0.35;
+            blade(base + {0, 0.02, 0} * ring, normalize(set(cos(a), up, sin(a))), r * (1 - ring * 0.25), r * 0.14, 0.05, col * (0.9 + 0.1 * ring));
+        }
+}
+void grass(vector base; float h; int id; vector col) {                // ornamental grass clump
+    for (int i = 0; i < 22; i++) {
+        float a = 2 * PI * rand(id * 19 + i), tilt = 0.1 + 0.6 * rand(id * 23 + i);
+        blade(base, normalize(set(cos(a) * tilt, 1, sin(a) * tilt)), h * (0.6 + 0.4 * rand(id * 29 + i)), 0.008, 0.3 + 0.5 * tilt, col * (0.85 + 0.3 * rand(id * 31 + i)));
+    }
+}
+int in_garage_(float x0, x1; float g0[]; float g1[]) {
+    for (int g = 0; g < len(g0); g++) if (x0 < g1[g] + 0.3 && x1 > g0[g] - 0.3) return 1;
+    return 0;
+}
+
+float k   = chf("slope");                 // rise per metre (0.06 = 6 %)
+float gap = chf("gap");
+int   sd  = chi("seed");
+// the row (any number of houses), laid out by row_layout: x extents, base heights, depths, left -> right
+float hx0[] = detail(1, "hx0"), hx1[] = detail(1, "hx1"), hd[] = detail(1, "hd"), hb[] = detail(1, "hb");
+float bay_x0[] = detail(1, "bay_x0"), bay_x1[] = detail(1, "bay_x1");     // ground-floor bays (world x)
+int nh = len(hx0);
+if (nh == 0) return;
+float W = chf("xcentre") * 2;                // the hero house
+
+// ---------------- layout across the street (z) ----------------
+float SW0 = 0.0, SW1 = 3.0;            // sidewalk
+float CURB1 = 3.15;                    // curb face
+float GUT1 = 3.55;                     // gutter
+float ROAD1 = 14.2;                    // far gutter
+float FAR0 = 14.6, FAR1 = 17.6;        // far sidewalk
+float CH = 0.15;                       // curb height
+float X0 = hx0[0] - chf("street_extend"), X1 = hx1[nh - 1] + chf("street_extend");      // the street runs on past the row
+
+// garages + stoops, found from the houses' own faces
+float gar0[], gar1[], gar_y[];
+float door0[], door1[];      // ground-level doors: keep bins / gardens out of their way
+float st_mn[], st_mx[];   // per house: stair bbox (x0, z0, x1, z1, ymin) packed 5 per house
+resize(st_mn, nh * 5); resize(st_mx, nh * 5);
+for (int h = 0; h < nh; h++) { st_mn[h * 5] = 1e9; st_mx[h * 5] = -1e9; st_mn[h * 5 + 1] = 1e9; st_mx[h * 5 + 1] = -1e9; st_mn[h * 5 + 2] = 1e9; }
+for (int pr = 0; pr < nprimitives(1); pr++) {
+    string pt_ = prim(1, "paint", pr);
+    if (pt_ == "door" || pt_ == "sash" || pt_ == "glass" || pt_ == "garage") {      // any ground-floor opening
+        int dp[] = primpoints(1, pr);
+        vector dmn = {1e9, 1e9, 1e9}, dmx = {-1e9, -1e9, -1e9};
+        for (int i = 0; i < len(dp); i++) { vector P = point(1, "P", dp[i]); dmn = min(dmn, P); dmx = max(dmx, P); }
+        if (dmx.z > -1.8 && dmn.y < gy((dmn.x + dmx.x) * 0.5) + 2.2) { append(door0, dmn.x); append(door1, dmx.x); }
+        if (pt_ != "garage") continue;
+    }
+    if (pt_ != "garage" && pt_ != "stair") continue;
+    int pp[] = primpoints(1, pr);
+    vector mn = {1e9, 1e9, 1e9}, mx = {-1e9, -1e9, -1e9};
+    for (int i = 0; i < len(pp); i++) { vector P = point(1, "P", pp[i]); mn = min(mn, P); mx = max(mx, P); }
+    if (pt_ == "garage") {
+        if (mx.z < -0.6) continue;
+        int merged = 0;
+        for (int g = 0; g < len(gar0); g++)
+            if (mn.x < gar1[g] + 0.05 && mx.x > gar0[g] - 0.05) {
+                gar0[g] = min(gar0[g], mn.x); gar1[g] = max(gar1[g], mx.x); gar_y[g] = min(gar_y[g], mn.y); merged = 1;
+            }
+        if (!merged) { append(gar0, mn.x); append(gar1, mx.x); append(gar_y, mn.y); }
+    } else {
+        if (mx.z < 0.02) continue;
+        float cx = (mn.x + mx.x) * 0.5;
+        for (int h = 0; h < nh; h++)
+            if (cx > hx0[h] && cx < hx1[h]) {
+                st_mn[h * 5] = min(st_mn[h * 5], mn.x); st_mx[h * 5] = max(st_mx[h * 5], mx.x);
+                st_mn[h * 5 + 1] = min(st_mn[h * 5 + 1], max(mn.z, 0.0)); st_mx[h * 5 + 1] = max(st_mx[h * 5 + 1], mx.z);
+                st_mn[h * 5 + 2] = min(st_mn[h * 5 + 2], mn.y);
+            }
+    }
+}
+
+// ---------------- sidewalk slabs (skipping the tree wells) ----------------
+float slab = 1.5;
+// the sidewalk is as wide as the deepest stoop needs (stoop + 1.4 m to walk past), in whole slabs
+float stz = 0;
+for (int h = 0; h < nh; h++) if (st_mn[h * 5] < st_mx[h * 5]) stz = max(stz, st_mx[h * 5 + 1]);
+SW1 = slab * max(2.0, ceil((stz + 1.4) / slab));
+CURB1 = SW1 + 0.15; GUT1 = SW1 + 0.55; ROAD1 = GUT1 + 10.65; FAR0 = ROAD1 + 0.4; FAR1 = FAR0 + 3.0;
+int nrows = int(rint(SW1 / slab));
+float TW0 = SW1 - slab;                        // the tree row is the one next to the curb
+float tree_x[];
+{
+    float step = max(chf("tree_spacing"), 1.0);
+    for (float tx = X0 + rnd(1) * step; tx < X1; tx += step * (0.8 + 0.4 * rnd(int(tx * 10))))
+        if (!in_garage_(tx - 1.4, tx + 1.4, gar0, gar1) && !near_stairs(tx, 1.8, st_mn, st_mx)
+            && rnd(int(tx * 7) + 3) < chf("tree_chance")) append(tree_x, tx);
+}
+// bus shelter site: a 4 m stretch near the downhill end, clear of stoops, driveways and trees
+float DF = 0.6;                                   // driveway flare
+float sh0 = 1e9, sh1 = 1e9; int shelter_near = 0;
+for (float sx = X1 - 9; sx > X0 + 6; sx -= 0.5) {
+    int bad = on_drive(sx - 0.3, sx + 4.3, gar0, gar1, DF);
+    for (int h = 0; h < nh; h++) if (st_mn[h * 5] < st_mx[h * 5] && sx < st_mx[h * 5] + 0.6 && sx + 4 > st_mn[h * 5] - 0.6) bad = 1;
+    for (int t = 0; t < len(tree_x); t++) if (tree_x[t] > sx - 1.2 && tree_x[t] < sx + 5.2) bad = 1;
+    if (!bad) { sh0 = sx; sh1 = sx + 4.0; shelter_near = 1; break; }
+}
+if (!shelter_near) { sh0 = X1 - 14; sh1 = sh0 + 4.0; }       // no room: it goes on the far side
+sbox(X0, X1, SW0 - 0.2, SW1, -0.25, -0.03, "concrete", {0.25, 0.25, 0.24});          // dark bed under the joints
+for (float x = X0; x < X1 - 0.01; x += slab) {
+    for (int row = 0; row < nrows; row++) {
+        float z0 = SW0 + row * slab, z1 = min(SW1, z0 + slab);
+        float a = x + 0.004, b = x + slab - 0.004;
+        int skip = 0;
+        if (row == nrows - 1) for (int t = 0; t < len(tree_x); t++) if (abs(tree_x[t] - (x + slab * 0.5)) < slab * 0.5) skip = 1;
+        if (skip) continue;
+        float r = rnd(int(x * 13) + row * 7);
+        float lift = (r - 0.5) * 0.008;
+        vector tint = lerp({0.66, 0.65, 0.62}, {0.78, 0.77, 0.74}, rnd(int(x * 17) + row * 3));
+        // cut the slab around any driveway (keep the left and right pieces)
+        float pa[] = array(a), pb[] = array(b);
+        for (int g = 0; g < len(gar0); g++) {
+            float d0 = gar0[g] - 0.15 - DF, d1 = gar1[g] + 0.15 + DF;
+            float na[], nb2[];
+            for (int k3 = 0; k3 < len(pa); k3++) {
+                if (pb[k3] <= d0 || pa[k3] >= d1) { append(na, pa[k3]); append(nb2, pb[k3]); continue; }
+                if (pa[k3] < d0 - 0.05) { append(na, pa[k3]); append(nb2, d0 - 0.004); }
+                if (pb[k3] > d1 + 0.05) { append(na, d1 + 0.004); append(nb2, pb[k3]); }
+            }
+            pa = na; pb = nb2;
+        }
+        for (int k3 = 0; k3 < len(pa); k3++)
+            sbox(pa[k3], pb[k3], z0 + 0.004, z1 - 0.004, -0.1, lift, "sidewalk", tint);
+    }
+}
+// tree wells: each tree gets a planter in the slab it replaced
+//   0 FLUSH WELL   : concrete or brick edge, soil, ground cover + a few flowers
+//   1 RAISED BOX   : a 40 cm planter box (wood or concrete) full of shrubs
+int well_kind[];
+for (int t = 0; t < len(tree_x); t++) {
+    float a = tree_x[t] - slab * 0.5 + 0.01, b = tree_x[t] + slab * 0.5 - 0.01;
+    float z0 = TW0 + 0.01, z1 = SW1 - 0.06;
+    int kind = rnd(1200 + t) < 0.35;
+    append(well_kind, kind);
+    float eh = kind ? 0.4 : 0.07, ew = kind ? 0.07 : 0.09;               // edge height + thickness
+    int brick = rnd(1210 + t) < 0.4;
+    string em = kind && rnd(1220 + t) < 0.6 ? "trim" : (brick ? "siding" : "concrete");
+    vector ec = em == "trim" ? set(0.30, 0.22, 0.15) : (brick ? set(0.55, 0.28, 0.2) : set(0.62, 0.61, 0.58));
+    if (em == "siding") { em = "granite"; ec = set(0.52, 0.30, 0.22); }                // brick-ish red stone edge
+    sbox(a, b, z0, z0 + ew, -0.1, eh, em, ec);
+    sbox(a, b, z1 - ew, z1, -0.1, eh, em, ec);
+    sbox(a, a + ew, z0 + ew, z1 - ew, -0.1, eh, em, ec);
+    sbox(b - ew, b, z0 + ew, z1 - ew, -0.1, eh, em, ec);
+    float top = kind ? eh - 0.06 : -0.02;
+    sbox(a + ew, b - ew, z0 + ew, z1 - ew, -0.2, top, "soil", {0.22, 0.15, 0.10});
+    // planting
+    int np = kind ? 7 : 9;
+    for (int i = 0; i < np; i++) {
+        float px = lerp(a + ew + 0.12, b - ew - 0.12, rnd(1300 + t * 20 + i));
+        float pz = lerp(z0 + ew + 0.12, z1 - ew - 0.12, rnd(1400 + t * 20 + i));
+        if (abs(px - tree_x[t]) < 0.18 && abs(pz - (TW0 + SW1) * 0.5) < 0.18) continue;   // clear of the trunk
+        float pr = kind ? 0.16 + 0.14 * rnd(1500 + t * 20 + i) : 0.08 + 0.09 * rnd(1500 + t * 20 + i);
+        vector pc = lerp({0.18, 0.30, 0.12}, {0.34, 0.44, 0.18}, rnd(1600 + t * 20 + i));
+        if (!kind && rnd(1700 + t * 20 + i) < 0.3)                              // flowers
+            pc = rnd(1800 + t * 20 + i) < 0.5 ? set(0.85, 0.45, 0.55) : set(0.92, 0.78, 0.3);
+        blob(set(px, gy(px) + top + pr * 0.6, pz), pr, 3000 + t * 20 + i, "leaf", pc);
+    }
+}
+
+// front gardens: along each facade, where there is no stoop and no garage, a planting strip
+// with a clipped hedge, a row of shrubs, or a couple of pots (like the Painted Ladies)
+for (int h = 0; h < nh; h++) {
+    float cuts0[], cuts1[];
+    if (st_mn[h * 5] < st_mx[h * 5]) { append(cuts0, st_mn[h * 5] - 0.15); append(cuts1, st_mx[h * 5] + 0.15); }
+    for (int g = 0; g < len(gar0); g++)
+        if (gar1[g] > hx0[h] && gar0[g] < hx1[h]) { append(cuts0, gar0[g] - 0.35); append(cuts1, gar1[g] + 0.35); }
+    // ground-floor bays stand out from the wall: no planting inside them
+    for (int b2 = 0; b2 < len(bay_x0); b2++)
+        if (bay_x1[b2] > hx0[h] && bay_x0[b2] < hx1[h]) { append(cuts0, bay_x0[b2] - 0.1); append(cuts1, bay_x1[b2] + 0.1); }
+    // wheelie bins (black / blue / green, like SF's three-bin collection): a 2 m free spot against the facade
+    if (rnd(2900 + h) < 0.75) {
+        for (int tries = 0; tries < 30; tries++) {
+            float bx0 = lerp(hx0[h] + 0.2, hx1[h] - 2.2, rnd(2910 + h * 40 + tries));
+            int bad = 0;
+            for (int c = 0; c < len(cuts0); c++) if (bx0 < cuts1[c] && bx0 + 2.0 > cuts0[c]) bad = 1;
+            if (on_drive(bx0, bx0 + 2.0, gar0, gar1, DF)) bad = 1;
+            for (int dd = 0; dd < len(door0); dd++) if (bx0 < door1[dd] + 0.5 && bx0 + 2.0 > door0[dd] - 0.5) bad = 1;
+            if (bad) continue;
+            append(cuts0, bx0); append(cuts1, bx0 + 2.0);
+            vector bc[] = array({0.07, 0.07, 0.075}, {0.12, 0.32, 0.62}, {0.18, 0.42, 0.2});
+            for (int q = 0; q < 3; q++) {
+                float x = bx0 + 0.1 + q * 0.64, y = gy(x + 0.3);
+                vector c = bc[q];
+                lbox(set(x, y + 0.06, 0.22), set(x + 0.58, y + 0.98, 0.9), "garage", c);              // body
+                lbox(set(x - 0.02, y + 0.98, 0.18), set(x + 0.6, y + 1.03, 0.93), "garage", c * 0.8); // lid
+                lbox(set(x + 0.05, y + 0.93, 0.12), set(x + 0.53, y + 0.97, 0.2), "garage", c * 0.8); // handle
+                hcyl(set(x + 0.02, y + 0.09, 0.26), set(x + 0.1, y + 0.09, 0.26), 0.09, 10, "iron", {0.05, 0.05, 0.05});
+                hcyl(set(x + 0.48, y + 0.09, 0.26), set(x + 0.56, y + 0.09, 0.26), 0.09, 10, "iron", {0.05, 0.05, 0.05});
+            }
+            break;
+        }
+    }
+    // walk the facade and plant every free stretch (bounded loop: always finishes)
+    float x = hx0[h] + 0.1, xend = hx1[h] - 0.1;
+    for (int seg = 0; seg < 24 && x < xend; seg++) {
+        // if x sits inside a cut, jump past it (repeat for overlapping cuts)
+        for (int rep = 0; rep < 6; rep++)
+            for (int c = 0; c < len(cuts0); c++)
+                if (x >= cuts0[c] && x < cuts1[c]) x = cuts1[c] + 0.001;
+        if (x >= xend) break;
+        float e = xend;
+        for (int c = 0; c < len(cuts0); c++) if (cuts0[c] > x) e = min(e, cuts0[c]);
+        float len_s = e - x;
+        float r = rnd(2100 + h * 10 + seg);
+        if (len_s > 0.7 && r < 0.75) {
+            float z1 = 0.55, by = hb[h];
+            float ground = min(gy(x), gy(e));
+            if (r < 0.35) {                                                        // clipped hedge in a low bed
+                sbox(x, e, 0.02, z1, -0.1, 0.12, "concrete", {0.6, 0.59, 0.56});
+                float hh = 0.8 + 0.6 * rnd(2200 + h * 10 + seg);
+                vector hc = lerp({0.16, 0.27, 0.11}, {0.26, 0.36, 0.14}, rnd(2300 + h * 10 + seg));
+                for (float hx = x + 0.2; hx < e - 0.15; hx += 0.28)
+                    for (int layer = 0; layer < 2; layer++)
+                        blob(set(hx, gy(hx) + 0.12 + hh * (0.35 + 0.45 * layer), 0.28), 0.26, int(hx * 100) + layer, "leaf",
+                             hc * (0.9 + 0.2 * rnd(int(hx * 77) + layer)));
+            } else if (r < 0.6) {                                                  // shrubs + flowers in a soil strip
+                sbox(x, e, 0.02, z1, -0.1, 0.05, "soil", {0.22, 0.15, 0.10});
+                for (float hx = x + 0.25; hx < e - 0.2; hx += 0.45 + 0.3 * rnd(int(hx * 31))) {
+                    float pr = 0.26 + 0.32 * rnd(int(hx * 53));
+                    vector pc = lerp({0.18, 0.30, 0.12}, {0.32, 0.42, 0.16}, rnd(int(hx * 41)));
+                    if (rnd(int(hx * 61)) < 0.3) pc = rnd(int(hx * 71)) < 0.5 ? set(0.8, 0.35, 0.5) : set(0.6, 0.45, 0.75);
+                    blob(set(hx, gy(hx) + 0.05 + pr * 0.7, 0.28), pr, int(hx * 100), "leaf", pc);
+                }
+            } else {                                                               // a few terracotta pots
+                int npots = 1 + int(rnd(2400 + h * 10 + seg) * 3);
+                for (int q = 0; q < npots; q++) {
+                    float px = lerp(x + 0.25, e - 0.25, (q + 0.5) / npots);
+                    float ps = 0.18 + 0.1 * rnd(2500 + h * 10 + q);
+                    cyl(set(px, gy(px), 0.3), ps * 0.7, ps, ps * 1.6, 12, "plant", {0.62, 0.32, 0.2});
+                    blob(set(px, gy(px) + ps * 1.6 + ps * 0.7, 0.3), ps * 1.1, 2600 + h * 10 + q, "leaf",
+                         lerp({0.2, 0.33, 0.13}, {0.35, 0.45, 0.2}, rnd(2700 + q)));
+                }
+            }
+        }
+        x = e + 0.01;
+    }
+}
+
+// ---------------- curb, gutter, road, far side ----------------
+{
+    float cx[];
+    for (float x = X0; x < X1; x += 2.0) append(cx, x);
+    append(cx, X1);
+    for (int g = 0; g < len(gar0); g++) { append(cx, gar0[g] - 0.15); append(cx, gar1[g] + 0.15); }
+    cx = sort(cx);
+    for (int i = 0; i < len(cx) - 1; i++) {
+        float a = cx[i], b = cx[i + 1];
+        if (b - a < 0.02) continue;
+        float m = (a + b) * 0.5;
+        int cut = 0;
+        for (int g = 0; g < len(gar0); g++) if (m > gar0[g] - 0.15 && m < gar1[g] + 0.15) cut = 1;
+        sbox(a, b - 0.003, SW1, CURB1, -0.4, cut ? -CH + 0.025 : 0.0, "granite", {0.6, 0.6, 0.58});
+    }
+    // red curb paint along the bus zone
+    if (shelter_near) {
+        sbox(sh0 - 3, sh1 + 3, SW1 + 0.004, CURB1 + 0.004, -CH - 0.002, 0.003, "street_paint", {0.72, 0.12, 0.1});
+    }
+}
+sbox(X0, X1, CURB1, GUT1, -0.4, -CH, "concrete", {0.5, 0.49, 0.47});
+sbox(X0, X1, GUT1, ROAD1, -0.5, -CH + 0.01, "asphalt", {0.16, 0.16, 0.165});
+// patches + a manhole
+for (int i = 0; i < 9; i++) {
+    float px = lerp(X0, X1, rnd(200 + i)), pz = lerp(GUT1 + 0.5, ROAD1 - 1.5, rnd(300 + i));
+    float pw = 0.8 + 2.5 * rnd(400 + i), pd = 0.5 + 1.2 * rnd(500 + i);
+    float g = 0.12 + 0.1 * rnd(600 + i);
+    sbox(px, px + pw, pz, pz + pd, -CH + 0.005, -CH + 0.013, "asphalt", set(g, g, g * 1.03));
+}
+{
+    float mx = lerp(0, W, 0.35 + 0.3 * rnd(7)), mz = 6.0;
+    vector c = set(mx, gy(mx) - CH + 0.012, mz);
+    cyl(c - {0, 0.02, 0}, 0.33, 0.33, 0.025, 20, "iron", {0.08, 0.08, 0.08});
+}
+// centre line: double yellow
+float cz = (GUT1 + ROAD1) * 0.5;
+for (int s = -1; s <= 1; s += 2)
+    sbox(X0, X1, cz + s * 0.09 - 0.05, cz + s * 0.09 + 0.05, -CH + 0.01, -CH + 0.016, "street_paint", {0.85, 0.66, 0.16});
+// parking T marks along the near side
+for (float x = X0 + 3; x < X1; x += 6.1)
+    if (!in_garage_(x - 0.2, x + 0.2, gar0, gar1))
+        sbox(x - 0.05, x + 0.05, GUT1, GUT1 + 2.2, -CH + 0.01, -CH + 0.016, "street_paint", {0.88, 0.88, 0.85});
+// far side
+sbox(X0, X1, ROAD1, FAR0, -0.4, -CH, "concrete", {0.5, 0.49, 0.47});
+sbox(X0, X1, FAR0 - 0.15, FAR0, -0.4, 0.0, "granite", {0.6, 0.6, 0.58});
+sbox(X0, X1, FAR0, FAR1, -0.4, 0.0, "sidewalk", {0.7, 0.69, 0.66});
+// street trees on the far sidewalk too, in square wells
+for (float tx = X0 + 3 + 5 * rnd(77); tx < X1 - 2; tx += chf("tree_spacing") * (0.9 + 0.5 * rnd(int(tx * 3) + 7))) {
+    if (rnd(int(tx * 5) + 11) > chf("tree_chance")) continue;
+    if (abs(tx - (chf("xcentre") - 14)) < 2.5 || abs(tx - (chf("xcentre") - 4)) < 2.5) continue;     // keep the kerb cameras clear
+    float tz = FAR0 + 0.75;
+    sbox(tx - 0.55, tx + 0.55, tz - 0.45, tz + 0.45, -0.2, 0.012, "soil", {0.22, 0.15, 0.10});
+    vector base = set(tx, gy(tx), tz);
+    float th = 2.4 + 1.3 * rnd(int(tx * 9) + 13), r = 1.1 + 0.6 * rnd(int(tx * 9) + 17);
+    cyl(base, 0.12, 0.08, th + r * 0.5, 7, "bark", {0.33, 0.27, 0.22});
+    vector leafc = lerp({0.20, 0.32, 0.14}, {0.36, 0.42, 0.18}, rnd(int(tx * 9) + 19));
+    int clipped = rnd(int(tx * 9) + 23) < 0.45;
+    for (int i = 0; i < (clipped ? 18 : 12); i++) {
+        vector o = set(rnd(int(tx * 31) + i) - 0.5, (rnd(int(tx * 37) + i) - 0.4) * 0.8, rnd(int(tx * 41) + i) - 0.5) * r * 1.6;
+        if (clipped) o = normalize(o + {0, 0.001, 0}) * r * 0.62;
+        blob(base + set(0, th + r * 0.6, 0) + o, clipped ? r * 0.42 : r * (0.35 + 0.3 * rnd(int(tx * 43) + i)), int(tx * 47) + i, "leaf",
+             leafc * (0.85 + 0.3 * rnd(int(tx * 53) + i)));
+    }
+}
+// ground behind / between the houses
+sbox(X0, X1, -24, SW0 - 0.2, -0.6, -0.04, "soil", {0.30, 0.27, 0.22});
+
+// ---------------- per house: foundation, stoop pad, garage ramp ----------------
+for (int h = 0; h < nh; h++) {
+    float x0 = hx0[h], x1 = hx1[h], by = hb[h];
+    float low = min(gy(x0), gy(x1));
+    if (by > low + 0.01)
+        lbox(set(x0 + 0.01, low - 0.3, -hd[h] + 0.05), set(x1 - 0.01, by + 0.01, -0.012), "concrete", {0.58, 0.57, 0.54});
+    if (st_mn[h * 5] < st_mx[h * 5]) {
+        float sx0 = st_mn[h * 5], sx1 = st_mx[h * 5], sz0 = st_mn[h * 5 + 1], sz1 = st_mx[h * 5 + 1], sy = st_mn[h * 5 + 2];
+        float g0 = min(gy(sx0), gy(sx1));
+        if (sy > g0 + 0.01)
+            lbox(set(sx0 - 0.03, g0 - 0.2, sz0), set(sx1 + 0.03, sy + 0.005, sz1 + 0.03), "granite", {0.62, 0.61, 0.58});
+    }
+}
+for (int g = 0; g < len(gar0); g++)
+    driveway(gar0[g] - 0.15, gar1[g] + 0.15, DF, gar_y[g] + 0.004, SW1, CH);
+
+// ---------------- side gates in the gaps ----------------
+{
+    for (int i = 0; i < nh - 1; i++) {
+        float a = hx1[i] + 0.02, b = hx0[i + 1] - 0.02;
+        if (b - a < 0.4) continue;
+        float y0 = max(gy(a), gy(b)), gz = -0.35;
+        vector col = rnd(700 + i) < 0.5 ? set(0.12, 0.2, 0.15) : set(0.08, 0.08, 0.09);
+        string m = rnd(710 + i) < 0.6 ? "trim" : "iron";
+        lbox(set(a, y0 - 0.2, gz - 0.03), set(a + 0.06, y0 + 1.9, gz + 0.03), m, col);
+        lbox(set(b - 0.06, y0 - 0.2, gz - 0.03), set(b, y0 + 1.9, gz + 0.03), m, col);
+        lbox(set(a, y0 + 1.7, gz - 0.02), set(b, y0 + 1.76, gz + 0.02), m, col);
+        lbox(set(a, y0 + 0.15, gz - 0.02), set(b, y0 + 0.21, gz + 0.02), m, col);
+        for (float x = a + 0.1; x < b - 0.08; x += 0.11)
+            lbox(set(x, y0 + 0.05, gz - 0.012), set(x + 0.04, y0 + 1.85, gz + 0.012), m, col);
+    }
+}
+
+// ---------------- trees ----------------
+for (int t = 0; t < len(tree_x); t++) {
+    float tx = tree_x[t], tz = (TW0 + SW1) * 0.5;
+    vector base = set(tx, gy(tx) - 0.05, tz);
+    float th = 2.3 + 1.2 * rnd(800 + t), r = 1.1 + 0.6 * rnd(810 + t);
+    cyl(base, 0.12, 0.08, th + r * 0.5, 7, "bark", {0.33, 0.27, 0.22});
+    vector leafc = lerp({0.20, 0.32, 0.14}, {0.36, 0.42, 0.18}, rnd(820 + t));
+    if (rnd(830 + t) < 0.25) leafc = lerp(leafc, {0.62, 0.45, 0.16}, 0.6);     // a tree turning in autumn
+    vector cc = base + set(0, th + r * 0.6, 0);
+    int clipped = rnd(840 + t) < 0.45;                       // clipped round crown (Painted Ladies) vs loose
+    int nb = clipped ? 22 : 14;
+    for (int i = 0; i < nb; i++) {
+        vector o = set(rnd(900 + t * 50 + i) - 0.5, (rnd(950 + t * 50 + i) - 0.4) * 0.8, rnd(1000 + t * 50 + i) - 0.5) * r * 1.6;
+        if (clipped) o = normalize(o + {0, 0.001, 0}) * r * 0.62 * (0.8 + 0.2 * rnd(1150 + t * 50 + i));
+        o.z = clamp(o.z, -r * 0.6, r * 0.9);                   // keep canopies off the facades
+        float br = clipped ? r * 0.42 : r * (0.35 + 0.3 * rnd(1050 + t * 50 + i));
+        vector lc = leafc * (0.85 + 0.3 * rnd(1100 + t * 50 + i));
+        blob(cc + o, br, t * 50 + i, "leaf", lc);
+    }
+    // a couple of branches into the crown on the loose trees
+    if (!clipped)
+        for (int k2 = 0; k2 < 3; k2++) {
+            float a = 2 * PI * (k2 / 3.0 + rnd(1160 + t));
+            hcyl(base + set(0, th * 0.8, 0), cc + set(cos(a), 0.2, sin(a) * 0.6) * r * 0.6, 0.04, 5, "bark", {0.33, 0.27, 0.22});
+        }
+}
+
+// ---------------- lamp posts + trolley wires ----------------
+float pole_z = SW1 - 0.35, far_pole_z = FAR0 + 0.35;
+float pole_x[];
+vector lamp_p[];
+for (float px0 = X0 + 6 + 4 * rnd(11); px0 < X1 - 2; px0 += 24) {
+    // slide the pole along until it is clear of stoops, garages and trees
+    float px = px0;
+    for (int tries = 0; tries < 20; tries++) {
+        int bad = near_stairs(px, 0.6, st_mn, st_mx) || on_drive(px - 0.3, px + 0.3, gar0, gar1, DF) || (px > sh0 - 1.5 && px < sh1 + 1.5);
+        for (int t = 0; t < len(tree_x); t++) if (abs(tree_x[t] - px) < 1.3) bad = 1;
+        if (!bad) break;
+        px += 0.5;
+    }
+    append(pole_x, px);
+    for (int side = 0; side < 2; side++) {
+        float pz = side ? far_pole_z : pole_z;
+        vector b = set(px, gy(px) - (side ? 0 : 0), pz);
+        cyl(b, 0.13, 0.09, 7.4, 10, "metal", {0.30, 0.31, 0.30});
+        // lamp arm reaching over the road
+        float dir = side ? -1 : 1;
+        vector arm0 = b + set(0, 6.9, 0), arm1 = b + set(0, 7.2, dir * 2.2);
+        hcyl(arm0, arm1, 0.04, 6, "metal", {0.30, 0.31, 0.30});
+        lbox(arm1 + set(-0.18, -0.06, -0.3), arm1 + set(0.18, 0.02, 0.3), "metal", {0.2, 0.2, 0.2});
+        lbox(arm1 + set(-0.14, -0.12, -0.24), arm1 + set(0.14, -0.06, 0.24), "lamp", {0.9, 0.85, 0.7});        // lamp glass (glows at dusk)
+        append(lamp_p, arm1 - set(0, 0.2, 0));                                                                   // for the real lights (night)
+    }
+    // span wire across the street, with the two trolley wires hung from it
+    vector a = set(px, gy(px) + 7.0, pole_z), c = set(px, gy(px) + 7.0, far_pole_z);
+    span(a, c, 0.25, 0.012);
+}
+// two trolley wires along the street (sag between spans)
+for (int w = 0; w < 2; w++) {
+    float wz = cz + (w ? 0.6 : -0.6) + 1.6;
+    vector P[];
+    for (float x = X0; x <= X1; x += 1.0) {
+        float ph = (x - (X0 + 6)) / 24.0;
+        float t = ph - floor(ph);
+        append(P, set(x, gy(x) + 6.55 - 0.18 * 4 * t * (1 - t), wz));
+    }
+    wire(P, 0.014, "metal", {0.05, 0.05, 0.05});
+}
+
+// ---------------- bus shelter, Muni stop sign, street signs, city trash cans ----------------
+{
+    // shelter: back panel toward the houses (near side) or toward the street (far side)
+    float zb = shelter_near ? SW1 - 1.8 : FAR0 + 1.7, zf = shelter_near ? SW1 - 0.45 : FAR0 + 0.35;
+    float za = min(zb, zf), zc = max(zb, zf);
+    float yb = gy(sh1);                                        // level floor at the downhill end
+    vector frame = {0.18, 0.2, 0.2};
+    float xs4[] = array(sh0 + 0.3, sh1 - 0.3);
+    for (int i = 0; i < 2; i++) {
+        cyl(set(xs4[i], yb - 0.2, zb), 0.035, 0.035, 2.6, 8, "metal", frame);
+        cyl(set(xs4[i], yb - 0.2, zf), 0.035, 0.035, 2.6, 8, "metal", frame);
+    }
+    lbox(set(sh0 + 0.1, yb + 2.38, za - 0.15), set(sh1 - 0.1, yb + 2.48, zc + 0.15), "metal", frame);          // roof
+    lbox(set(sh0 + 0.32, yb + 0.15, zb - 0.006), set(sh1 - 0.32, yb + 2.3, zb + 0.006), "glass", {1, 1, 1});    // back glass
+    for (int i = 0; i < 2; i++) {
+        float x = xs4[i];
+        lbox(set(x - 0.006, yb + 0.15, za + 0.05), set(x + 0.006, yb + 2.3, (za + zc) * 0.5), "glass", {1, 1, 1});   // side glass
+    }
+    lbox(set(sh1 - 1.3, yb + 0.25, zb + (shelter_near ? 0.02 : -0.08)), set(sh1 - 0.35, yb + 2.0, zb + (shelter_near ? 0.08 : -0.02)),
+         "street_paint", {0.95, 0.88, 0.7});                                                                     // lit ad panel
+    lbox(set(sh0 + 0.6, yb + 0.42, (za + zc) * 0.5 - 0.2), set(sh0 + 2.3, yb + 0.47, (za + zc) * 0.5 + 0.15), "metal", frame);   // bench
+    // Muni stop pole beside the shelter
+    float mx = sh0 - 0.6, mz = shelter_near ? SW1 - 0.4 : FAR0 + 0.4;
+    vector b = set(mx, gy(mx), mz);
+    cyl(b, 0.04, 0.04, 3.0, 8, "metal", {0.6, 0.6, 0.58});
+    cyl(b + {0, 1.9, 0}, 0.045, 0.045, 0.35, 8, "street_paint", {0.9, 0.72, 0.1});                  // yellow band
+    lbox(b + set(-0.02, 2.35, -0.25), b + set(0.02, 2.95, 0.25), "street_paint", {0.75, 0.12, 0.1});    // sign plate
+    lbox(b + set(-0.025, 2.45, -0.2), b + set(0.025, 2.6, 0.2), "street_paint", {0.95, 0.95, 0.92});
+}
+// parking / street signs along the near curb (each slides clear of stoops, driveways, trees, poles)
+for (float sx0 = X0 + 4 + 3 * rnd(60); sx0 < X1 - 3; sx0 += 11 + 4 * rnd(int(sx0))) {
+    float sx = sx0;
+    int ok = 0;
+    for (int tries = 0; tries < 16; tries++) {
+        int bad = near_stairs(sx, 0.4, st_mn, st_mx) || on_drive(sx - 0.2, sx + 0.2, gar0, gar1, DF) || (sx > sh0 - 1 && sx < sh1 + 1);
+        for (int t = 0; t < len(tree_x); t++) if (abs(tree_x[t] - sx) < 1.0) bad = 1;
+        if (!bad) { ok = 1; break; }
+        sx += 0.6;
+    }
+    if (!ok) continue;
+    vector b = set(sx, gy(sx), SW1 - 0.3);
+    cyl(b, 0.03, 0.03, 2.7, 6, "metal", {0.55, 0.55, 0.53});
+    float r = rnd(int(sx * 11));
+    vector band = r < 0.4 ? set(0.15, 0.45, 0.2) : (r < 0.8 ? set(0.75, 0.12, 0.1) : set(0.1, 0.25, 0.6));   // 2 hr / tow-away / permit
+    lbox(b + set(-0.18, 2.05, 0.035), b + set(0.18, 2.6, 0.05), "street_paint", {0.94, 0.94, 0.9});
+    lbox(b + set(-0.16, 2.42, 0.05), b + set(0.16, 2.55, 0.056), "street_paint", band);
+    lbox(b + set(-0.16, 2.12, 0.05), b + set(0.16, 2.2, 0.056), "street_paint", band);
+}
+// street name blades at the uphill end of the block
+{
+    float sx = X0 + 2.5;
+    vector b = set(sx, gy(sx), SW1 - 0.3);
+    cyl(b, 0.04, 0.04, 3.3, 8, "metal", {0.55, 0.55, 0.53});
+    lbox(b + set(-0.45, 3.0, -0.012), b + set(0.45, 3.18, 0.012), "street_paint", {0.1, 0.35, 0.2});
+    lbox(b + set(-0.012, 3.2, -0.45), b + set(0.012, 3.38, 0.45), "street_paint", {0.1, 0.35, 0.2});
+}
+// city trash cans (dark green) near the shelter and mid-block
+for (int i = 0; i < 2; i++) {
+    float tx = i == 0 ? sh1 + 0.8 : lerp(X0 + 10, X1 - 10, rnd(70));
+    float tz = i == 0 && !shelter_near ? FAR0 + 0.5 : SW1 - 0.5;
+    if (i == 1)
+        for (int tries = 0; tries < 16; tries++) {
+            int bad = near_stairs(tx, 0.5, st_mn, st_mx) || on_drive(tx - 0.4, tx + 0.4, gar0, gar1, DF);
+            for (int t = 0; t < len(tree_x); t++) if (abs(tree_x[t] - tx) < 1.0) bad = 1;
+            if (!bad) break;
+            tx += 0.7;
+        }
+    vector b = set(tx, gy(tx), tz);
+    cyl(b, 0.27, 0.3, 0.95, 14, "metal", {0.1, 0.2, 0.15});
+    cyl(b + {0, 0.95, 0}, 0.31, 0.12, 0.16, 14, "metal", {0.08, 0.16, 0.12});
+}
+float hyd_x[];
+for (int i = 0; i < 2; i++) {
+    float hxp = lerp(X0 + 8, X1 - 8, 0.2 + 0.6 * rnd(30 + i));
+    for (int tries = 0; tries < 16 && (on_drive(hxp - 0.4, hxp + 0.4, gar0, gar1, DF) || near_stairs(hxp, 0.5, st_mn, st_mx)
+                                        || (hxp > sh0 - 1.5 && hxp < sh1 + 1.5)); tries++)
+        hxp += 0.8;
+    append(hyd_x, hxp);
+    vector b = set(hxp, gy(hxp), SW1 - 0.45);
+    vector top = rnd(40 + i) < 0.5 ? set(0.2, 0.35, 0.7) : set(0.75, 0.15, 0.12);    // SF hydrants: white body, coloured bonnet
+    cyl(b, 0.16, 0.16, 0.08, 12, "metal", {0.85, 0.84, 0.8});
+    cyl(b + {0, 0.08, 0}, 0.12, 0.11, 0.5, 12, "metal", {0.88, 0.87, 0.83});
+    cyl(b + {0, 0.58, 0}, 0.13, 0.05, 0.14, 12, "metal", top);
+    hcyl(b + {0, 0.38, 0}, b + {0.2, 0.38, 0}, 0.045, 8, "metal", {0.88, 0.87, 0.83});
+    hcyl(b + {0, 0.38, 0}, b + {-0.2, 0.38, 0}, 0.045, 8, "metal", {0.88, 0.87, 0.83});
+    hcyl(b + {0, 0.3, 0}, b + {0, 0.3, 0.2}, 0.06, 8, "metal", {0.88, 0.87, 0.83});
+}
+
+// ---------------- parked cars (near curb; far curb optional) ----------------
+{
+    vector car_cols[] = array({0.72, 0.73, 0.74}, {0.9, 0.9, 0.88}, {0.08, 0.08, 0.09}, {0.32, 0.33, 0.35}, {0.15, 0.2, 0.32},
+                              {0.42, 0.1, 0.1}, {0.62, 0.56, 0.45}, {0.25, 0.33, 0.26}, {0.55, 0.62, 0.7}, {0.8, 0.62, 0.2});
+    // nose-in on the driveway aprons (about 40 % of garages), following the slope of the apron
+    for (int g = 0; g < len(gar0); g++) {
+        if (chf("cars") <= 0 || chi("cars_beyond_row") || rnd(5600 + g) > 0.4) continue;
+        int kind = SW1 + 0.5 > 4.6 ? int(rnd(5610 + g) * 2.999) : 1;      // short sidewalk: only a hatchback fits
+        float L = kind == 1 ? 3.9 : (kind == 2 ? 4.6 : 4.5);
+        float gx = (gar0[g] + gar1[g]) * 0.5;
+        float zf = 0.35, zr = zf + L;
+        vector front = set(gx, drive_y(gx, zf, gar_y[g] + 0.004, SW1, CH, 1), zf);
+        vector rear  = set(gx, drive_y(gx, min(zr, SW1 + 0.3), gar_y[g] + 0.004, SW1, CH, 1), zr);
+        vector tt = normalize(front - rear);
+        vector nn = normalize(set(0, 1, 0) - tt * dot(tt, {0, 1, 0}));
+        vector bb = normalize(cross(tt, nn));
+        vector col = car_cols[int(rnd(5620 + g) * 9.999)];
+        car((front + rear) * 0.5 + nn * 0.012, tt, nn, bb, kind, col, 0.0);
+    }
+    for (int side = 0; side < 2; side++) {
+        float dens = side ? chf("cars_far") : chf("cars");
+        if (dens <= 0) continue;
+        float x = X0 + 2 + 3 * rnd(5000 + side);
+        int guard = 0;
+        while (x < X1 - 6 && guard < 400) {
+            guard++;
+            int kind = int(rnd(5100 + guard + side * 1000) * 3.999);
+            float L = kind == 1 ? 3.9 : (kind == 2 ? 4.6 : (kind == 3 ? 4.9 : 4.5));
+            int bad = 0;
+            if (side == 0) {
+                if (on_drive(x - 0.6, x + L + 0.6, gar0, gar1, DF)) bad = 1;
+                if (chi("cars_beyond_row") && x < hx1[nh - 1] + 4) bad = 1;      // only down the street, past the row
+                if (shelter_near && x < sh1 + 3.5 && x + L > sh0 - 3.5) bad = 1;
+                for (int i = 0; i < len(hyd_x); i++) if (x < hyd_x[i] + 1.5 && x + L > hyd_x[i] - 1.5) bad = 1;
+            }
+            if (bad) { x += 0.5; continue; }
+            if (rnd(5200 + guard + side * 1000) < dens) {
+                float cx = x + L * 0.5;
+                float dir = side ? -1 : 1;                               // near side faces downhill, far side uphill
+                vector tt = normalize(set(dir, -k * dir, 0));
+                vector nn = normalize(set(k, 1, 0));
+                vector bb = normalize(cross(tt, nn));
+                float zc = side ? ROAD1 - 0.3 - 0.9 : CURB1 + 0.3 + 0.9;
+                vector o = set(cx, gy(cx) - CH + 0.012, zc);
+                vector col = car_cols[int(rnd(5300 + guard + side * 1000) * 9.999)];
+                float steer = radians(22) * (side ? -1 : 1);             // wheels turned into the curb (SF hill law)
+                car(o, tt, nn, bb, kind, col, steer);
+            }
+            x += L + 0.9 + 1.6 * rnd(5400 + guard + side * 1000);
+        }
+    }
+}
+
+// ---------------- sidewalk gardens: planted strips along the curb (SF's permitted sidewalk landscaping) ----------------
+//   flax, agave/aeonium rosettes, grasses, lavender and the odd low shrub, in mulch, between the tree wells
+{
+    float sx = X0 + 2;
+    int gid = 0;
+    while (sx < X1 - 3 && gid < 200) {
+        gid++;
+        float slen = 1.4 + 2.4 * rnd(15000 + gid);
+        float a = sx, e = sx + slen;
+        int bad = on_drive(a - 0.3, e + 0.3, gar0, gar1, DF) || (shelter_near && a < sh1 + 3.2 && e > sh0 - 3.2);
+        for (int t = 0; t < len(tree_x); t++) if (a < tree_x[t] + 1.0 && e > tree_x[t] - 1.0) bad = 1;
+        for (int i = 0; i < len(hyd_x); i++) if (a < hyd_x[i] + 1.0 && e > hyd_x[i] - 1.0) bad = 1;
+        for (int i = 0; i < len(pole_x); i++) if (a < pole_x[i] + 0.6 && e > pole_x[i] - 0.6) bad = 1;
+        if (bad || rnd(15100 + gid) > chf("sidewalk_gardens")) { sx += 0.7; continue; }
+        float z0 = SW1 - 1.05, z1 = SW1 - 0.15;
+        sbox(a, e, z0, z1, -0.2, 0.06, "concrete", {0.6, 0.59, 0.56});                  // low edge
+        sbox(a + 0.05, e - 0.05, z0 + 0.05, z1 - 0.05, -0.2, 0.045, "soil", {0.26, 0.17, 0.11});   // mulch
+        for (float px = a + 0.25; px < e - 0.2; px += 0.35 + 0.35 * rnd(int(px * 41) + gid)) {
+            float pz = lerp(z0 + 0.2, z1 - 0.2, rnd(int(px * 43) + gid));
+            vector b = set(px, gy(px) + 0.045, pz);
+            float r = rnd(int(px * 47) + gid);
+            int pid = int(px * 100) + gid;
+            float sz = rnd(pid + 9) < 0.3 ? 1.8 + 0.6 * rnd(pid + 10) : 1.25 + 0.4 * rnd(pid + 10);   // a few big specimens
+            if (r < 0.22)      flax(b, (0.7 + 0.5 * rnd(pid)) * sz, pid, rnd(pid + 1) < 0.5 ? set(0.32, 0.16, 0.14) : set(0.42, 0.5, 0.2));    // bronze or green flax
+            else if (r < 0.45) agave(b, (0.18 + 0.15 * rnd(pid)) * sz, pid, rnd(pid + 2) < 0.5 ? set(0.42, 0.55, 0.5) : set(0.3, 0.45, 0.22));
+            else if (r < 0.68) grass(b, (0.35 + 0.3 * rnd(pid)) * sz, pid, set(0.55, 0.55, 0.3));
+            else if (r < 0.85) {                                                                                               // lavender
+                blob(b + set(0, 0.16 * sz, 0), 0.18 * sz, pid, "leaf", {0.36, 0.42, 0.3});
+                for (int k = 0; k < 8; k++) blob(b + set(rnd(pid + k * 3) - 0.5, 0.33, rnd(pid + k * 5) - 0.5) * 0.3 * sz + set(0, 0.25 * sz, 0), 0.045 * sz, pid + k, "leaf", {0.48, 0.38, 0.7});
+            }
+            else blob(b + set(0, 0.2 * sz, 0), 0.24 * sz, pid, "leaf", lerp({0.2, 0.32, 0.14}, {0.3, 0.4, 0.18}, rnd(pid + 3)));          // low shrub
+        }
+        sx = e + 0.6 + 1.5 * rnd(15200 + gid);
+    }
+}
+
+// ---------------- fallen leaves (mostly in the gutter and round the trees) ----------------
+int nl = chi("leaves");
+for (int i = 0; i < nl; i++) {
+    float r = rnd(2000 + i);
+    float x = lerp(X0, X1, rnd(3000 + i)), z;
+    float y;
+    if (r < 0.5)      { z = lerp(CURB1, GUT1 + 0.3, rnd(4000 + i)); y = gy(x) - CH + 0.012; }
+    else if (r < 0.85){ z = lerp(SW0 + 0.3, SW1, rnd(4000 + i));    y = gy(x) + 0.014; }
+    else              { z = lerp(GUT1, ROAD1, rnd(4000 + i));       y = gy(x) - CH + 0.02; }
+    float a = 2 * PI * rnd(5000 + i), s = 0.035 + 0.03 * rnd(6000 + i);
+    vector u = set(cos(a), 0, sin(a)) * s, v = set(-sin(a), 0, cos(a)) * s * 0.6;
+    vector c = set(x, y, z);
+    vector lc = lerp({0.55, 0.36, 0.12}, {0.35, 0.22, 0.1}, rnd(7000 + i));
+    if (rnd(8000 + i) < 0.3) lc = {0.62, 0.52, 0.2};
+    face(array(c - u, c - v, c + u, c + v), {0, 1, 0}, "leaf", lc);
+}
+
+// for city_backdrop: the row's extents and where the far sidewalk ends
+f[]@hx0 = hx0; f[]@hx1 = hx1;
+f@far_back = FAR1;
+v[]@lamp_pos = lamp_p;          // street lamp heads, for the night lights in /stage
+f@lamp_on = chi("lamps_on");      // 1 at dusk / night: the lamp material glows only then

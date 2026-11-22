@@ -1,0 +1,397 @@
+// =====================================================================
+// window_dressing (v2)  —  Attribute Wrangle, Run Over: Detail
+//   input 1: every glass piece of the house with a "class" attribute (Connectivity)
+//   input 2: building_params (W, slots)
+//
+// v2: glass PIECES are first merged into WINDOWS (upper + lower sash, arched strips, bay facets
+//     stay separate per facet), so one window gets one continuous treatment, and the sill (for
+//     plants) is the real bottom of the window.
+//
+// Treatments (relative chances on the asset's Interior tab):
+//   0 open       room only                 5 plant      potted plant on the sill
+// One curtain per window (no layering); every window in a room (a window group, or one floor of a bay)
+// gets the same treatment.
+//   1 sheer      full-height lace          6 cafe       curtain on a rod across the LOWER half
+//   2 tied back  two drapes gathered       7 valance    short gathered band at the top (+ sheer)
+//   3 blind      roller blind part-way     8 half drawn one heavy panel pulled part-way across
+//   4 closed     heavy drapes drawn shut
+// Colours: each floor is a separate flat with its own drape / sheer / blind colour and its own
+// usual treatment (20% of rooms differ); "Colour Variety" (default 0) lets the odd room differ in colour.
+// Groups: room | curtain_sheer | curtain | blind | plant | pot   prim attrib v@fabric_col (sRGB)
+// =====================================================================
+#include "facade_lib.h"
+
+float weights[];
+append(weights, chf("dress_open"));    append(weights, chf("dress_sheer"));  append(weights, chf("dress_tied"));
+append(weights, chf("dress_blind"));   append(weights, chf("dress_closed")); append(weights, chf("dress_plant"));
+append(weights, chf("dress_cafe"));    append(weights, chf("dress_valance")); append(weights, chf("dress_half"));
+
+vector drape_cols[] = array({0.45,0.08,0.10}, {0.14,0.30,0.20}, {0.72,0.55,0.22}, {0.88,0.84,0.72},
+                            {0.14,0.18,0.32}, {0.36,0.14,0.30}, {0.62,0.30,0.22}, {0.30,0.46,0.48},
+                            {0.80,0.72,0.58}, {0.55,0.20,0.32});
+vector sheer_cols[] = array({0.96,0.95,0.92}, {0.98,0.97,0.94}, {0.94,0.90,0.80}, {0.93,0.92,0.95});
+vector blind_cols[] = array({0.94,0.92,0.86}, {0.90,0.84,0.70}, {0.82,0.78,0.70}, {0.70,0.60,0.46});
+int ndc = 10;
+// each FLOOR is a separate flat: its own drape / sheer / blind colour and its own usual treatment
+float floor_h[] = detail(2, "floor_h");
+float rnd_unit(int fl, s) { return rand(chi("seed") * 7919 + 50000 + fl * 977 + s); }
+float variety = chf("dress_variety");
+
+float rnd(int w, s) { return rand(chi("seed") * 7919 + w * 131 + s); }
+
+int pick(float r; float w[]) {
+    float total = 0;
+    for (int i = 0; i < 9; i++) total += w[i];
+    if (total <= 0) return 0;
+    float acc = 0;
+    for (int i = 0; i < 9; i++) { acc += w[i] / total; if (r < acc) return i; }
+    return 8;
+}
+
+void tag(int prim; string grp; vector col) {
+    setprimgroup(0, grp, prim, 1);
+    setprimattrib(0, "fabric_col", prim, col);
+}
+
+// how far the GLASS surface sits in front of the window's mid-plane at u (curved bays bulge out):
+// fitted per window as  A + B * t^2,  t = (u - centre) / half-width   (cv = {A, B, centre})
+float glass_off(float u; vector cv; float hw) {
+    float t = clamp((u - cv.z) / max(hw, 1e-3), -1, 1);   // no extrapolation past the window edge
+    return cv.x + cv.y * t * t;
+}
+
+// card in the window frame, bent to follow the glass (o has y = 0, so v is a world height)
+// a box in the window's frame (u along the window, v up, z out of the wall): furniture silhouettes in the rooms
+void rbox(vector o, ru, rv, n; float u0, u1, v0, v1, z0, z1; string grp; vector col; int rid) {
+    vector c[];
+    for (int i = 0; i < 8; i++)
+        append(c, o + ru * (i % 2 ? u1 : u0) + rv * ((i / 2) % 2 ? v1 : v0) + n * (i / 4 ? z1 : z0));
+    int f[] = array(4,5,7,6, 1,0,2,3, 0,4,6,2, 5,1,3,7, 2,6,7,3, 0,1,5,4);
+    for (int k = 0; k < 6; k++) {
+        int pr = addprim(0, "poly", array(addpoint(0, c[f[k*4]]), addpoint(0, c[f[k*4+1]]), addpoint(0, c[f[k*4+2]]), addpoint(0, c[f[k*4+3]])));
+        tag(pr, grp, col);
+        setprimattrib(0, "room_id", pr, rid);
+    }
+}
+int card(vector o, ru, rv, n; vector cv; float hw; float u0, u1, v0, v1, dep; string grp; vector col) {
+    int first = -1;
+    int cols = max(1, int((u1 - u0) / 0.08));
+    int lo[], hi[];
+    for (int c = 0; c <= cols; c++) {
+        float u = lerp(u0, u1, float(c) / cols);
+        float z = glass_off(u, cv, hw) - dep;
+        int a = addpoint(0, o + ru * u + rv * v0 + n * z);
+        int b = addpoint(0, o + ru * u + rv * v1 + n * z);
+        append(lo, a); append(hi, b);
+    }
+    for (int c = 0; c < cols; c++) {
+        int pr = addprim(0, "poly", array(hi[c], hi[c + 1], lo[c + 1], lo[c]));
+        tag(pr, grp, col);
+        if (first < 0) first = pr;
+    }
+    return first;
+}
+
+// fabric panel with vertical folds; optional gathering toward tie_v (tie_v <= 0: none)
+void drape(vector o, ru, rv, n; vector cv; float hw; float u0, u1, v0, v1, dep, amp, tie_v, tie_frac; int gather_left;
+           string grp; vector col) {
+    int cols = max(4, int((u1 - u0) / 0.04));
+    int rows = tie_v > 0 ? 8 : 1;
+    int grid[];
+    for (int r = 0; r <= rows; r++) {
+        float v = lerp(v0, v1, float(r) / rows);
+        float k = 1.0;
+        if (tie_v > 0) k = lerp(tie_frac, 1.0, smooth(0.0, 0.45, abs(v - tie_v) / max(v1 - v0, 1e-3)));
+        float uu0 = gather_left ? u0 : lerp(u1, u0, k);
+        float uu1 = gather_left ? lerp(u0, u1, k) : u1;
+        for (int c = 0; c <= cols; c++) {
+            float s = float(c) / cols;
+            float fold = amp * sin(s * cols * 0.5 * PI) / max(k, 0.35);
+            float u = lerp(uu0, uu1, s);
+            int pt = addpoint(0, o + ru * u + rv * v + n * (glass_off(u, cv, hw) - dep - fold));
+            append(grid, pt);
+        }
+    }
+    for (int r = 0; r < rows; r++)
+        for (int c = 0; c < cols; c++) {
+            int i0 = r * (cols + 1) + c;
+            int pr = addprim(0, "poly", array(grid[i0 + cols + 1], grid[i0 + cols + 2], grid[i0 + 1], grid[i0]));
+            tag(pr, grp, col);
+        }
+}
+
+// ---------- slots whose glass is skipped (garage, door) and bay boxes (for normals) ----------
+vector skip_min[], skip_max[], bay_min[], bay_max[];
+for (int s = 0; s < npoints(2); s++) {
+    string nm = point(2, "name", s);
+    vector smn = point(2, "bbmin", s), smx = point(2, "bbmax", s);
+    if (nm == "garage" || nm == "door" || nm == "stairs") { append(skip_min, smn); append(skip_max, smx); }
+    if (startswith(nm, "bay"))                            { append(bay_min, smn);  append(bay_max, smx); }
+}
+
+// ---------- 1. measure every glass piece ----------
+vector pc[], pn[]; float pu0[], pu1[], pv0[], pv1[];
+int n_classes = nuniqueval(1, "prim", "class");
+for (int ci = 0; ci < n_classes; ci++) {
+    int cls = uniqueval(1, "prim", "class", ci);
+    int prims[] = findattribval(1, "prim", "class", cls);
+    vector c = 0, nrm = 0; int np = 0;
+    for (int k = 0; k < len(prims); k++) {
+        int pr = prims[k];
+        vector pnrm = prim_normal(1, pr, 0.5, 0.5);
+        nrm += pnrm;
+        int pts[] = primpoints(1, pr);
+        for (int j = 0; j < len(pts); j++) { vector q = point(1, "P", pts[j]); c += q; np++; }
+    }
+    c /= max(np, 1);
+    nrm.y = 0;
+    if (length(nrm) < 1e-4) continue;
+    nrm = normalize(nrm);
+    // point the normal away from the house (from the bay centre for bay glass)
+    vector ref = set(c.x, c.y, -1.0);
+    for (int b = 0; b < len(bay_min); b++)
+        if (c.x > bay_min[b].x - 0.05 && c.x < bay_max[b].x + 0.05 && c.y > bay_min[b].y && c.y < bay_max[b].y && c.z > 0.02)
+            ref = set((bay_min[b].x + bay_max[b].x) * 0.5, c.y, 0.0);
+    if (dot(nrm, c - ref) < 0) nrm = -nrm;
+    int skip = 0;
+    for (int k = 0; k < len(skip_min); k++)
+        if (c.x > skip_min[k].x && c.x < skip_max[k].x && c.y > skip_min[k].y && c.y < skip_max[k].y) skip = 1;
+    if (skip) continue;
+
+    vector ru = normalize(cross({0, 1, 0}, nrm));
+    float u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (int k = 0; k < len(prims); k++) {
+        int pts[] = primpoints(1, prims[k]);
+        for (int j = 0; j < len(pts); j++) {
+            vector q = point(1, "P", pts[j]);
+            float u = dot(q - c, ru);
+            u0 = min(u0, u); u1 = max(u1, u); v0 = min(v0, q.y); v1 = max(v1, q.y);
+        }
+    }
+    append(pc, c); append(pn, nrm); append(pu0, u0); append(pu1, u1); append(pv0, v0); append(pv1, v1);
+}
+
+// ---------- 2. merge pieces into windows ----------
+// same facing, same plane, overlapping left/right, and stacked with a small vertical gap
+int npieces = len(pc);
+
+vector wc[], wn[]; float wu0[], wu1[], wv0[], wv1[];
+for (int i = 0; i < npieces; i++) {
+    int found = -1;
+    for (int w = 0; w < len(wc); w++) {
+        if (dot(pn[i], wn[w]) < 0.97) continue;
+        if (abs(dot(pc[i] - wc[w], wn[w])) > 0.08) continue;
+        vector ru = normalize(cross({0, 1, 0}, wn[w]));
+        float off = dot(pc[i] - wc[w], ru);
+        float a0 = off + pu0[i], a1 = off + pu1[i];
+        float overlap = min(a1, wu1[w]) - max(a0, wu0[w]);
+        if (overlap < 0.6 * min(a1 - a0, wu1[w] - wu0[w])) continue;
+        float gap = max(pv0[i] - wv1[w], wv0[w] - pv1[i]);
+        if (gap > 0.3) continue;
+        found = w;
+        wu0[w] = min(wu0[w], a0); wu1[w] = max(wu1[w], a1);
+        wv0[w] = min(wv0[w], pv0[i]); wv1[w] = max(wv1[w], pv1[i]);
+        break;
+    }
+    if (found < 0) {
+        append(wc, pc[i]); append(wn, pn[i]);
+        append(wu0, pu0[i]); append(wu1, pu1[i]); append(wv0, pv0[i]); append(wv1, pv1[i]);
+    }
+}
+
+// ---------- 2b. group neighbouring windows (a pair / triple in one room shares one treatment) ----------
+int grp[];
+for (int w = 0; w < len(wc); w++) {
+    int g = w;
+    for (int k = 0; k < w; k++) {
+        if (dot(wn[w], wn[k]) < 0.97) continue;
+        if (abs(dot(wc[w] - wc[k], wn[k])) > 0.08) continue;
+        vector ruk = normalize(cross({0, 1, 0}, wn[k]));
+        float off = dot(wc[w] - wc[k], ruk);
+        float gap = max(off + wu0[w] - wu1[k], wu0[k] - (off + wu1[w]));
+        float vover = min(wv1[w], wv1[k]) - max(wv0[w], wv0[k]);
+        if (gap < 0.45 && vover > 0.7 * min(wv1[w] - wv0[w], wv1[k] - wv0[k])) { g = grp[k]; break; }
+    }
+    // windows of the same bay on the same floor are one room too (their facets face different ways)
+    for (int k = 0; k < w && g == w; k++) {
+        float vover = min(wv1[w], wv1[k]) - max(wv0[w], wv0[k]);
+        if (vover < 0.5 * min(wv1[w] - wv0[w], wv1[k] - wv0[k])) continue;
+        for (int b = 0; b < len(bay_min); b++) {
+            int in_w = wc[w].x > bay_min[b].x - 0.1 && wc[w].x < bay_max[b].x + 0.1 && wc[w].z > 0.02;
+            int in_k = wc[k].x > bay_min[b].x - 0.1 && wc[k].x < bay_max[b].x + 0.1 && wc[k].z > 0.02;
+            if (in_w && in_k) { g = grp[k]; break; }
+        }
+    }
+    append(grp, g);
+}
+
+// ---------- 3. dress every window ----------
+for (int w = 0; w < len(wc); w++) {
+    vector nrm = wn[w];
+    vector rv = {0, 1, 0};
+    vector ru = normalize(cross(rv, nrm));
+    vector o = wc[w]; o.y = 0;
+    float umin = wu0[w], umax = wu1[w], vmin = wv0[w], vmax = wv1[w];
+    float pw = umax - umin, ph = vmax - vmin;
+    if (pw < 0.15 || ph < 0.25) continue;
+
+    // fit the glass surface: offset from the mid-plane = A + B t^2 (B < 0 for a round bay facet)
+    float hw = pw * 0.5, umid = (umin + umax) * 0.5;
+    float sx = 0, sd = 0, sxx = 0, sxd = 0; int cnt = 0;
+    // only glass that faces the same way as this window (a round bay's strips stay within ~35 deg;
+    // the neighbouring facets of an angled bay are 45 deg off and must not bend this window)
+    for (int pr = 0; pr < nprimitives(1); pr++) {
+        vector pnrm = prim_normal(1, pr, 0.5, 0.5);
+        if (abs(dot(pnrm, nrm)) < 0.8) continue;
+        int pts[] = primpoints(1, pr);
+        for (int j = 0; j < len(pts); j++) {
+            vector P = point(1, "P", pts[j]);
+            if (P.y < vmin - 0.01 || P.y > vmax + 0.01) continue;
+            float u = dot(P - wc[w], ru);
+            if (u < umin - 0.01 || u > umax + 0.01) continue;
+            float dz = dot(P - wc[w], nrm);
+            if (abs(dz) > 0.4) continue;
+            float t = (u - umid) / hw, x = t * t;
+            sx += x; sd += dz; sxx += x * x; sxd += x * dz; cnt++;
+        }
+    }
+    float B = 0, A = 0;
+    if (cnt > 2 && abs(cnt * sxx - sx * sx) > 1e-6) B = (cnt * sxd - sx * sd) / (cnt * sxx - sx * sx);
+    if (cnt > 0) A = (sd - B * sx) / cnt;
+    B = clamp(B, -hw * 0.6, 0.02);                    // only a gentle outward bulge, never inward
+    if (abs(B) < 0.01) { B = 0; A = 0; }
+    vector cv = set(A, B, umid);
+
+    // room: back wall, floor, ceiling, sides (dim, warm, a little variation per window)
+    float depth = 0.55 + abs(B), m = 0.08;
+    vector walls[] = array({0.30, 0.26, 0.20}, {0.24, 0.20, 0.15}, {0.20, 0.26, 0.22}, {0.30, 0.22, 0.20},
+                           {0.20, 0.23, 0.30}, {0.33, 0.31, 0.27}, {0.28, 0.17, 0.14}, {0.26, 0.27, 0.20});
+    vector room = walls[int(rnd(w, 1) * 7.999)] * (0.85 + 0.3 * rnd(w, 2));   // painted interiors: cream, sage, rose, blue, oxblood... (sRGB)
+    int room_first = card(o, ru, rv, nrm, cv, hw, umin - m, umax + m, vmin - m, vmax + m, depth, "room", room);
+    vector bl = o + ru * (umin - m) + rv * (vmin - m), br = o + ru * (umax + m) + rv * (vmin - m);
+    vector tl = o + ru * (umin - m) + rv * (vmax + m), tr = o + ru * (umax + m) + rv * (vmax + m);
+    vector dd = nrm * (min(A, A + B) - depth), e0 = nrm * (min(A, A + B) - 0.02);
+    tag(addprim(0, "poly", array(addpoint(0, bl + dd), addpoint(0, br + dd), addpoint(0, br + e0), addpoint(0, bl + e0))), "room", room * 0.5);
+    tag(addprim(0, "poly", array(addpoint(0, tl + e0), addpoint(0, tr + e0), addpoint(0, tr + dd), addpoint(0, tl + dd))), "room", room * 1.2);
+    tag(addprim(0, "poly", array(addpoint(0, bl + e0), addpoint(0, tl + e0), addpoint(0, tl + dd), addpoint(0, bl + dd))), "room", room);
+    int room_last = addprim(0, "poly", array(addpoint(0, br + dd), addpoint(0, tr + dd), addpoint(0, tr + e0), addpoint(0, br + e0)));
+    tag(room_last, "room", room);
+    for (int rp = room_first; rp <= room_last; rp++) setprimattrib(0, "room_id", rp, grp[w]);   // one id per ROOM: all its faces light alike
+    // ---- furnishings (dark silhouettes against the lit back wall, so rooms read as lived in) ----
+    {
+        float zb = min(A, A + B) - depth + 0.03, h = vmax - vmin, uw = umax - umin, v0f = vmin - m;
+        vector wood = lerp({0.10, 0.07, 0.05}, {0.25, 0.18, 0.12}, rnd(w, 61));
+        vector soft = lerp({0.14, 0.13, 0.15}, {0.32, 0.22, 0.2}, rnd(w, 62));
+        float r = rnd(w, 63);
+        if (r < 0.45) {                                                         // sofa / armchair back
+            float a0 = umin + uw * (0.05 + 0.25 * rnd(w, 64)), a1 = a0 + uw * (0.45 + 0.3 * rnd(w, 65));
+            rbox(o, ru, rv, nrm, a0, min(a1, umax), v0f, v0f + h * 0.32, zb, zb + 0.4, "curtain", soft, grp[w]);
+        } else if (r < 0.75) {                                                  // sideboard / desk
+            float a0 = umin + uw * (0.1 + 0.3 * rnd(w, 66)), a1 = a0 + uw * 0.4;
+            rbox(o, ru, rv, nrm, a0, min(a1, umax), v0f, v0f + h * 0.38, zb, zb + 0.3, "curtain", wood, grp[w]);
+        }
+        if (rnd(w, 67) < 0.6) {                                                 // a framed picture on the back wall
+            float pu = umin + uw * (0.2 + 0.6 * rnd(w, 68)), ps = min(uw * 0.18, 0.35);
+            rbox(o, ru, rv, nrm, pu - ps, pu + ps, vmin + h * 0.5, vmin + h * 0.5 + ps * 1.3, zb - 0.01, zb + 0.02, "curtain", wood * 0.7, grp[w]);
+        }
+        if (rnd(w, 69) < 0.45) {                                                // floor lamp: pole + glowing shade
+            float lu = rnd(w, 70) < 0.5 ? umin + uw * 0.12 : umax - uw * 0.12;
+            rbox(o, ru, rv, nrm, lu - 0.015, lu + 0.015, v0f, vmin + h * 0.55, zb + 0.15, zb + 0.18, "curtain", {0.05, 0.05, 0.05}, grp[w]);
+            rbox(o, ru, rv, nrm, lu - 0.12, lu + 0.12, vmin + h * 0.55, vmin + h * 0.72, zb + 0.06, zb + 0.28, "room", {0.95, 0.85, 0.65}, grp[w]);
+        }
+        if (rnd(w, 73) < 0.35) {                                                // pendant lamp hanging from the ceiling
+            float pu = umin + uw * (0.3 + 0.4 * rnd(w, 74));
+            rbox(o, ru, rv, nrm, pu - 0.005, pu + 0.005, vmax - h * 0.18, vmax + m, zb + 0.25, zb + 0.26, "curtain", {0.05, 0.05, 0.05}, grp[w]);
+            rbox(o, ru, rv, nrm, pu - 0.1, pu + 0.1, vmax - h * 0.28, vmax - h * 0.18, zb + 0.15, zb + 0.35, "room", {0.95, 0.85, 0.65}, grp[w]);
+        }
+        if (rnd(w, 75) < 0.35) {                                                // tall house plant in a pot
+            float qu = rnd(w, 76) < 0.5 ? umin + uw * 0.08 : umax - uw * 0.08;
+            vector leafc = lerp({0.10, 0.18, 0.08}, {0.18, 0.28, 0.12}, rnd(w, 77));
+            rbox(o, ru, rv, nrm, qu - 0.09, qu + 0.09, v0f, v0f + 0.22, zb + 0.2, zb + 0.38, "curtain", {0.35, 0.18, 0.12}, grp[w]);
+            for (int lf = 0; lf < 4; lf++) {
+                float lu = qu + (rnd(w, 78 + lf) - 0.5) * 0.35, lv = v0f + 0.25 + h * (0.12 + 0.12 * lf);
+                rbox(o, ru, rv, nrm, lu - 0.12, lu + 0.12, lv, lv + h * 0.12, zb + 0.18, zb + 0.4, "curtain", leafc * (0.8 + 0.4 * rnd(w, 82 + lf)), grp[w]);
+            }
+        }
+        if (r >= 0.45 && r < 0.75 && rnd(w, 86) < 0.6) {                       // table lamp on the sideboard
+            float tu = umin + uw * (0.25 + 0.3 * rnd(w, 87));
+            rbox(o, ru, rv, nrm, tu - 0.07, tu + 0.07, v0f + h * 0.38, v0f + h * 0.38 + 0.12, zb + 0.08, zb + 0.2, "room", {0.95, 0.8, 0.55}, grp[w]);
+        }
+        if (rnd(w, 88) < 0.3) {                                                 // a second, smaller frame or a mirror
+            float pu = umin + uw * (0.15 + 0.7 * rnd(w, 89)), ps = min(uw * 0.1, 0.2);
+            rbox(o, ru, rv, nrm, pu - ps, pu + ps, vmin + h * 0.62, vmin + h * 0.62 + ps * 1.6, zb - 0.01, zb + 0.02, "curtain",
+                 rnd(w, 90) < 0.5 ? set(0.55, 0.45, 0.2) : wood * 0.6, grp[w]);
+        }
+        if (rnd(w, 71) < 0.3) {                                                 // tall bookshelf at one side
+            float bu = rnd(w, 72) < 0.5 ? umin - m : umax + m - 0.45;
+            rbox(o, ru, rv, nrm, bu, bu + 0.45, v0f, vmin + h * 0.95, zb, zb + 0.3, "curtain", wood, grp[w]);
+        }
+    }
+
+    int g = grp[w];                                   // shared choices use the GROUP id
+    // which floor (flat) this window belongs to
+    int fl = 0; float acc_h = 0, wy = (vmin + vmax) * 0.5;
+    for (int f = 0; f < len(floor_h); f++) { if (wy > acc_h) fl = f; acc_h += floor_h[f]; }
+    // the flat's usual treatment; the odd room (20%) does its own thing
+    int kind = pick(rnd_unit(fl, 2), weights);
+    if (rnd(g, 19) < 0.2) kind = pick(rnd(g, 2), weights);
+    if (kind == 5 && g != w) kind = 1;                // one plant per group; the neighbours get sheers
+    int ci = int(rnd_unit(fl, 4) * (ndc - 0.001));
+    if (rnd(g, 4) < variety) ci = int(rnd(g, 5) * (ndc - 0.001));
+    vector heavy = drape_cols[ci];
+    vector sheer = sheer_cols[int(rnd_unit(fl, 3) * 3.999)];
+    vector blind = blind_cols[int(rnd_unit(fl, 7) * 3.999)];
+    float dep = 0.05;
+    float mid = (umin + umax) * 0.5;
+
+    if (kind == 1) {                                                        // sheer
+        drape(o, ru, rv, nrm, cv, hw, umin, umax, vmin, vmax, dep, 0.012, 0, 1, 1, "curtain_sheer", sheer);
+    }
+    else if (kind == 2) {                                                   // tied back
+        float tie = lerp(vmin, vmax, lerp(0.35, 0.5, rnd(g, 8))), panel = pw * 0.3;
+        drape(o, ru, rv, nrm, cv, hw, umin, umin + panel, vmin, vmax, dep, 0.02, tie, 0.35, 1, "curtain", heavy);
+        drape(o, ru, rv, nrm, cv, hw, umax - panel, umax, vmin, vmax, dep, 0.02, tie, 0.35, 0, "curtain", heavy);
+    }
+    else if (kind == 3) {                                                   // roller blind part-way
+        float vb = vmax - ph * lerp(0.2, 0.7, rnd(g, 6));
+        card(o, ru, rv, nrm, cv, hw, umin, umax, vb, vmax, dep, "blind", blind);
+        card(o, ru, rv, nrm, cv, hw, umin, umax, vb - 0.025, vb, dep - 0.01, "blind", blind * 0.6);
+    }
+    else if (kind == 4) {                                                   // closed drapes
+        drape(o, ru, rv, nrm, cv, hw, umin, mid + 0.02, vmin, vmax, dep, 0.025, 0, 1, 1, "curtain", heavy);
+        drape(o, ru, rv, nrm, cv, hw, mid - 0.02, umax, vmin, vmax, dep + 0.015, 0.025, 0, 1, 0, "curtain", heavy);
+    }
+    else if (kind == 5) {                                                   // plant on the sill
+        float pot_w = min(0.22, pw * 0.3), pot_h = pot_w * 0.9;
+        float pu = lerp(umin + pot_w, umax - pot_w, rnd(w, 10));
+        vector base = o + ru * pu + rv * (vmin + 0.01) + nrm * (glass_off(pu, cv, hw) - 0.16);        // sits on the inside sill
+        vector pa = base - ru * pot_w * 0.5 - nrm * pot_w * 0.4, pb = base + ru * pot_w * 0.5 + rv * pot_h + nrm * pot_w * 0.4;
+        add_box(min(pa, pb), max(pa, pb), "pot");
+        vector leaf = lerp({0.16, 0.34, 0.12}, {0.30, 0.50, 0.20}, rnd(w, 11));
+        float maxh = min(ph * 0.45, pot_h * 2.6);                           // never taller than half the window
+        for (int l = 0; l < 9; l++) {
+            float a = radians(lerp(-70, 70, l / 8.0) + (rnd(w, 20 + l) - 0.5) * 20);
+            float len_l = lerp(maxh * 0.5, maxh, rnd(w, 40 + l));
+            vector dir = normalize(rv * cos(a) + ru * sin(a));
+            vector side = normalize(cross(dir, nrm)) * len_l * 0.22;
+            vector root = base + rv * pot_h, tip = root + dir * len_l - nrm * (rnd(w, 60 + l) - 0.5) * 0.1;
+            vector mp = (root + tip) * 0.5;
+            tag(addprim(0, "poly", array(addpoint(0, root), addpoint(0, mp + side), addpoint(0, tip), addpoint(0, mp - side))), "plant", leaf);
+        }
+    }
+    else if (kind == 6) {                                                   // cafe curtain: lower half on a rod
+        float rod = lerp(vmin, vmax, lerp(0.45, 0.55, rnd(g, 13)));
+        drape(o, ru, rv, nrm, cv, hw, umin, umax, vmin, rod, dep, 0.015, 0, 1, 1, rnd(g, 14) < 0.5 ? "curtain_sheer" : "curtain",
+              rnd(g, 14) < 0.5 ? sheer : heavy);
+        card(o, ru, rv, nrm, cv, hw, umin, umax, rod, rod + 0.02, dep - 0.02, "blind", {0.35, 0.28, 0.20});    // rod
+    }
+    else if (kind == 7) {                                                   // valance + sheer
+        float vh = min(0.3, ph * 0.18);
+        drape(o, ru, rv, nrm, cv, hw, umin - 0.03, umax + 0.03, vmax - vh, vmax, dep - 0.015, 0.025, 0, 1, 1, "curtain", heavy);
+    }
+    else if (kind == 8) {                                                   // one heavy panel pulled part-way
+        float reach = lerp(0.3, 0.6, rnd(g, 16));
+        if (rnd(g, 17) < 0.5) drape(o, ru, rv, nrm, cv, hw, umin, umin + pw * reach, vmin, vmax, dep, 0.025, 0, 1, 1, "curtain", heavy);
+        else                  drape(o, ru, rv, nrm, cv, hw, umax - pw * reach, umax, vmin, vmax, dep, 0.025, 0, 1, 0, "curtain", heavy);
+    }
+}

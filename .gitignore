@@ -1,0 +1,33 @@
+backup/
+debug/
+_to_delete/
+hdri/
+otls/backup/
+render/*
+!render/portfolio/
+render/portfolio/*
+!render/portfolio/web/
+*.exr
+*.checkpoint*
+SanFranciscoHouse_v1_*.hipnc
+SanFranciscoHouse_v2_*.hipnc
+SanFranciscoHouse_v3_*.hipnc
+.DS_Store
+__pycache__/
+.venv/
+mcp/
+houdini_mcp/
+_handoff/
+# private working notes (the website is the public write-up)
+VSCODE_HANDOFF.md
+PORTFOLIO_HANDOFF.md
+CASE_STUDY_DRAFT.md
+# only the material version the scene uses
+materials/house_materials*.mtlx
+!materials/house_materials_v16.mtlx
+*.bak
+# web renders: JPGs only (PNGs are the lossless masters, kept locally)
+render/portfolio/web/**/*.png
+# agent session patch scripts (kept locally, not published)
+patch_*.py
+CLAUDE.local.md

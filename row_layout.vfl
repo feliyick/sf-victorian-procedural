@@ -1,0 +1,60 @@
+// =====================================================================
+// row_layout  —  Attribute Wrangle, Run Over: Detail
+//   input 0: the hero house + every row house, each tagged by house_tag (house_id 0 = hero)
+//   spare parms: slope, gap, xcentre (half the hero's width)
+// Lays the row out down the hill: the hero stays at x = 0..W, houses 1..nl go to its left
+// (uphill), the rest to its right (downhill), each separated by 'gap' and set at the height
+// of the hill under its middle. Writes, for the move step and the street:
+//   f[]@tx_by, f[]@ty_by      offset per house_id
+//   f[]@hx0, hx1, hb, hd      every house left -> right: x extents, base height, depth
+//   f[]@bay_x0, bay_x1        ground-floor bays in world x
+// and removes the info points.
+// =====================================================================
+float k = chf("slope"), gap = chf("gap"), xc = chf("xcentre");
+int n = 0;
+for (int p = 0; p < npoints(0); p++) {
+    string inf = point(0, "info", p);
+    if (inf == "house") { int id = point(0, "house_id", p); n = max(n, id + 1); }
+}
+float Wb[], Db[];
+resize(Wb, n); resize(Db, n);
+for (int p = 0; p < npoints(0); p++) {
+    string inf = point(0, "info", p);
+    if (inf == "house") {
+        int id = point(0, "house_id", p);
+        float w = point(0, "iw", p), dd = point(0, "id_depth", p);
+        Wb[id] = w; Db[id] = dd;
+    }
+}
+int nl = (n - 1) / 2;
+float tx[], ty[];
+resize(tx, n); resize(ty, n);
+float cur = -gap;
+for (int id = 1; id <= nl; id++) { tx[id] = cur - Wb[id]; cur -= Wb[id] + gap; }
+cur = Wb[0] + gap;
+for (int id = nl + 1; id < n; id++) { tx[id] = cur; cur += Wb[id] + gap; }
+for (int id = 0; id < n; id++) ty[id] = -k * (tx[id] + Wb[id] * 0.5 - xc);
+
+int order[];
+for (int id = nl; id >= 1; id--) append(order, id);
+append(order, 0);
+for (int id = nl + 1; id < n; id++) append(order, id);
+float hx0[], hx1[], hb[], hd[];
+for (int i = 0; i < len(order); i++) {
+    int id = order[i];
+    append(hx0, tx[id]); append(hx1, tx[id] + Wb[id]); append(hb, ty[id]); append(hd, Db[id]);
+}
+float bx0[], bx1[];
+for (int p = 0; p < npoints(0); p++) {
+    string inf = point(0, "info", p);
+    if (inf == "bay0") {
+        int id = point(0, "house_id", p);
+        vector P = point(0, "P", p);
+        float w = point(0, "iw", p);
+        append(bx0, P.x + tx[id]); append(bx1, P.x + tx[id] + w);
+    }
+    if (inf != "") removepoint(0, p);
+}
+f[]@tx_by = tx; f[]@ty_by = ty;
+f[]@hx0 = hx0; f[]@hx1 = hx1; f[]@hb = hb; f[]@hd = hd;
+f[]@bay_x0 = bx0; f[]@bay_x1 = bx1;

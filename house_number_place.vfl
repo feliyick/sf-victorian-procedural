@@ -1,0 +1,7 @@
+// house_number_place  —  Attribute Wrangle, Run Over: Points
+//   input 0: the number text (Font -> Divide -> PolyExtrude), centred on the origin in XY
+//   input 1: entry_params (ox0/ox1 = the door opening, oy1 = its top, rec = how deep the door sits)
+// Puts the house number in the transom over the front door, just in front of the glass.
+float ox0 = detail(1, "ox0"), ox1 = detail(1, "ox1"), oy1 = detail(1, "oy1"), rec = detail(1, "rec");
+if (ox1 - ox0 < 0.1) { removepoint(0, @ptnum); return; }          // no door on this house
+@P = set((ox0 + ox1) * 0.5 + @P.x, oy1 - 0.22 + @P.y, -rec + 0.06 + @P.z);

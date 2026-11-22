@@ -1,0 +1,344 @@
+// =====================================================================
+// openings_build  —  Attribute Wrangle, Run Over: Detail
+//   input 1: empty      input 2: opening_params
+//
+// Turns the openings PLANNED by opening_params into real geometry:
+//   every flat window : frame + glass (square or arched top), meeting rail,
+//                       casing boards, sill + apron, hood (cornice / pediment / arch / none)
+//   window groups     : neighbouring windows in one slot share ONE casing, sill and hood
+//                       with a mullion board between them (real paired Victorian windows)
+//   the garage door   : panelled leaf (top row glass if garage_windows), trim boards
+//
+// Primitive groups (the paint scheme step colours these):
+//   trim        = casings, sills, aprons, hoods, garage trim
+//   sash        = window frames and rails
+//   glass       = every pane
+//   garage_body = garage door leaf and panels
+//
+// Space: the wall face is z = 0, the house is behind it (negative z), x = along the street.
+// Winding: every face is built so its normal points OUT (if all faces look inside-out,
+// un-bypass openings_reverse below this node).
+// =====================================================================
+#include "facade_lib.h"
+
+// ---------- one curved band following a segmental arch (front, top, underside, end caps) ----------
+void arch_band(float l, r, base_y, rise, band_h, z0, z1; int segs; string grp) {
+    vector lo[], hi[];
+    for (int k = 0; k <= segs; k++) {
+        float x = lerp(l, r, float(k) / segs);
+        float y = arch_height_at(x, l, r, base_y + rise, rise);
+        append(lo, set(x, y, 0)); append(hi, set(x, y + band_h, 0));
+    }
+    vector a = set(0, 0, z0), b = set(0, 0, z1);
+    for (int k = 0; k < segs; k++) {
+        add_quad(lo[k] + b, hi[k] + b, hi[k+1] + b, lo[k+1] + b, grp);     // front
+        add_quad(hi[k] + b, hi[k] + a, hi[k+1] + a, hi[k+1] + b, grp);     // top
+        add_quad(lo[k] + a, lo[k] + b, lo[k+1] + b, lo[k+1] + a, grp);     // underside
+    }
+    add_quad(lo[0] + a, hi[0] + a, hi[0] + b, lo[0] + b, grp);
+    add_quad(lo[segs] + a, lo[segs] + b, hi[segs] + b, hi[segs] + a, grp);
+}
+// ---------- small eight-sided rosette (medallion), facing the street ----------
+void rosette(vector c; float rad, depth; string grp) {
+    int ring_f[], ring_b[];
+    for (int k = 0; k < 8; k++) {
+        float a = radians(22.5 + 45 * k);
+        vector o = set(cos(a) * rad, sin(a) * rad, 0);
+        append(ring_f, addpoint(0, c + o + set(0, 0, depth)));
+        append(ring_b, addpoint(0, c + o));
+    }
+    setprimgroup(0, grp, addprim(0, "poly", reverse(ring_f)), 1);
+    for (int k = 0; k < 8; k++) {
+        int n = (k + 1) % 8;
+        setprimgroup(0, grp, addprim(0, "poly", array(ring_b[n], ring_b[k], ring_f[k], ring_f[n])), 1);
+    }
+}
+
+// tapered keystone (wider at the top), front at z1, in the trim colour
+void keystone(float cx, y0, y1, w_bot, w_top, z0, z1; string grp) {
+    vector f0 = set(cx - w_bot * 0.5, y0, z1), f1 = set(cx + w_bot * 0.5, y0, z1);
+    vector f2 = set(cx + w_top * 0.5, y1, z1), f3 = set(cx - w_top * 0.5, y1, z1);
+    vector dz = set(0, 0, z0 - z1);
+    add_quad(f3, f2, f1, f0, grp);                                // front
+    add_quad(f2, f2 + dz, f1 + dz, f1, grp);                      // right
+    add_quad(f3 + dz, f3, f0, f0 + dz, grp);                      // left
+    add_quad(f3 + dz, f2 + dz, f2, f3, grp);                      // top
+    add_quad(f0, f1, f1 + dz, f0 + dz, grp);                      // bottom
+}
+
+// ---------- house-level style (decided in building_params, copied through opening_params) ----------
+int   hood_style   = detail(1, "hood_style");      // 0 cornice, 1 pediment, 2 arch, 3 none
+int   sash_arched  = detail(1, "sash_arched");     // 1 = curved top on the glass
+int   garage_glass = detail(1, "garage_windows");  // 1 = top row of the garage door is glass
+float recess       = detail(1, "window_recess");   // how far the window sits back (0 = on the wall face)
+
+// ---------- sizes (artist sliders) ----------
+float casing_w = chf("casing_w"),  casing_d = chf("casing_d");                 // trim boards around the opening
+float sill_h   = chf("sill_h"),    sill_d   = chf("sill_d");                   // sill thickness / how far it sticks out
+float sill_ext = chf("sill_ext"),  apron_h  = chf("apron_h");                  // sill overhang past the casing / board under the sill
+float hood_h   = chf("hood_h"),    hood_d   = chf("hood_d");                   // hood height / how far it sticks out
+float ped_rise = chf("pediment_rise");                                         // height of the pediment triangle
+float frame_w  = chf("frame_w"),   frame_d  = chf("frame_d");                  // window frame width / depth
+float rail_h   = chf("rail_h");                                                // meeting rail (where the two sashes meet)
+float arch_rise_frac = chf("arch_rise_frac");                                  // arched glass: rise as a fraction of the width
+int   arch_segments  = chi("arch_segments");                                   // smoothness of every arch
+
+float garage_back  = -chf("../opening_params/garage_recess_d");               // the garage door sits at the back of its cut
+float panel_w      = chf("garage_panel_w");
+int   panel_rows   = chi("garage_rows");
+float panel_margin = chf("garage_panel_margin");
+float garage_trim  = chf("garage_trim_w");
+
+float group_gap    = chf("../opening_params/gap") + 0.001;                   // windows closer than this share one casing
+
+// ---------- pass 1: build the garage, collect the windows ----------
+float win_l[], win_r[], win_b[], win_t[];
+for (int pt = 0; pt < npoints(1); pt++) {
+    string kind = point(1, "name", pt);
+    float left   = point(1, "open_left",   pt);
+    float right  = point(1, "open_right",  pt);
+    float bottom = point(1, "open_bottom", pt);
+    float top    = point(1, "open_top",    pt);
+
+    if (kind == "window") {
+        append(win_l, left); append(win_r, right); append(win_b, bottom); append(win_t, top);
+    }
+    else if (kind == "garage_door") {
+        // ---------- garage door designs ----------
+        // garage_style: 0 panels (sectional, raised panels)   1 arched (panels under an arched head)
+        //               2 carriage (two swing leaves, vertical boards, cross brace, strap hinges)
+        //               3 flush sections (long horizontal panels)   4 divided light (glass grid over panels)
+        int gs = chi("garage_style") > 0 ? chi("garage_style") - 1 : int(rand_range(0, 4.999, 90));
+        float width = right - left, height = top - bottom;
+        float leaf_front = garage_back + 0.03;
+        float leaf_top = top;
+
+        // ARCHED: the leaf has an arched head, the corners above it are filled with trim spandrels + keystone
+        if (gs == 1) {
+            float rise = min(width * 0.12, height * 0.2);
+            leaf_top = top - rise;
+            int segs = 16;
+            vector outline[] = make_outline(left, right, bottom, top, rise, segs);
+            add_ring(outline, garage_back, outline, leaf_front, "garage_body");
+            fill_outline(outline, leaf_front, "garage_body");
+            for (int k = 0; k < segs; k++) {                                   // spandrels: arch -> square top
+                float xa = lerp(left, right, float(k) / segs), xb = lerp(left, right, float(k + 1) / segs);
+                float ya = arch_height_at(xa, left, right, top, rise), yb = arch_height_at(xb, left, right, top, rise);
+                add_quad(set(xa, top, 0.005), set(xb, top, 0.005), set(xb, yb, 0.005), set(xa, ya, 0.005), "trim");
+            }
+            float cx = (left + right) * 0.5;
+            keystone(cx, top - 0.22, top + garage_trim * 1.3, 0.14, 0.24, 0, casing_d + 0.05, "trim");   // keystone
+        } else {
+            add_box(set(left, bottom, garage_back), set(right, top, leaf_front), "garage_body");
+        }
+
+        float ph = leaf_top - bottom;
+        if (gs == 0 || gs == 1) {                                              // raised panel grid
+            int cols = max(2, int(rint(width / panel_w)));
+            float cw = width / cols, chh = ph / panel_rows;
+            for (int r = 0; r < panel_rows; r++)
+                for (int c = 0; c < cols; c++) {
+                    vector pmin = set(left + c * cw + panel_margin, bottom + r * chh + panel_margin, leaf_front);
+                    vector pmax = set(left + (c + 1) * cw - panel_margin, bottom + (r + 1) * chh - panel_margin, leaf_front + 0.02);
+                    if (garage_glass && r == panel_rows - 1)
+                        add_box(set(pmin.x, pmin.y, leaf_front - 0.005), set(pmax.x, pmax.y, leaf_front + 0.003), "glass");
+                    else
+                        add_box(pmin, pmax, "garage_body");
+                }
+        }
+        else if (gs == 2) {                                                    // carriage doors
+            float mid = (left + right) * 0.5;
+            add_box(set(mid - 0.015, bottom, leaf_front), set(mid + 0.015, leaf_top, leaf_front + 0.01), "trim");   // centre seam
+            for (float x = left + 0.12; x < right - 0.05; x += 0.12)                                                 // board grooves
+                add_box(set(x - 0.006, bottom, leaf_front), set(x + 0.006, leaf_top, leaf_front + 0.004), "trim");
+            float wy0 = leaf_top - ph * 0.28;
+            for (int leaf = 0; leaf < 2; leaf++) {
+                float side = leaf;
+                float l0 = side == 0 ? left : mid, l1 = side == 0 ? mid : right;
+                // frame: rails + stiles on each leaf
+                add_box(set(l0 + 0.03, bottom + 0.05, leaf_front), set(l1 - 0.03, bottom + 0.17, leaf_front + 0.03), "garage_body");
+                add_box(set(l0 + 0.03, wy0 - 0.06, leaf_front), set(l1 - 0.03, wy0 + 0.06, leaf_front + 0.03), "garage_body");
+                add_box(set(l0 + 0.03, leaf_top - 0.14, leaf_front), set(l1 - 0.03, leaf_top - 0.03, leaf_front + 0.03), "garage_body");
+                // cross brace in the lower part: a thick diagonal board
+                vector a0 = set(l0 + 0.1, bottom + 0.17, leaf_front + 0.012), a1 = set(l1 - 0.1, wy0 - 0.06, leaf_front + 0.012);
+                vector dir = normalize(a1 - a0), nrm = set(-dir.y, dir.x, 0) * 0.06;
+                add_quad(a0 + nrm + {0, 0, 0.015}, a1 + nrm + {0, 0, 0.015}, a1 - nrm + {0, 0, 0.015}, a0 - nrm + {0, 0, 0.015}, "garage_body");
+                // upper row of small windows (if the house has garage windows)
+                if (garage_glass) {
+                    int nw = 3; float gw = (l1 - l0 - 0.1) / nw;
+                    for (int k = 0; k < nw; k++)
+                        add_box(set(l0 + 0.05 + k * gw + 0.03, wy0 + 0.1, leaf_front - 0.004), set(l0 + 0.05 + (k + 1) * gw - 0.03, leaf_top - 0.18, leaf_front + 0.003), "glass");
+                }
+                // strap hinges (pop colour) on the outer edge of each leaf
+                float hx0 = side == 0 ? l0 : l1 - 0.55, hx1 = side == 0 ? l0 + 0.55 : l1;
+                for (int hgi = 0; hgi < 2; hgi++) {
+                    float hy = hgi == 0 ? bottom + 0.35 : leaf_top - 0.45;
+                    add_box(set(hx0, hy, leaf_front + 0.03), set(hx1, hy + 0.06, leaf_front + 0.045), "ornament");
+                }
+            }
+        }
+        else if (gs == 3) {                                                    // flush horizontal sections
+            int secs = 4; float sh = ph / secs;
+            for (int k = 0; k < secs; k++) {
+                float sy0 = bottom + k * sh, sy1 = sy0 + sh;
+                if (garage_glass && k == secs - 1) {
+                    int nw = max(3, int(width / 0.8)); float gw = (width - 0.2) / nw;
+                    for (int w = 0; w < nw; w++)
+                        add_box(set(left + 0.1 + w * gw + 0.04, sy0 + 0.1, leaf_front - 0.004), set(left + 0.1 + (w + 1) * gw - 0.04, sy1 - 0.1, leaf_front + 0.003), "glass");
+                } else {
+                    add_box(set(left + 0.06, sy0 + 0.06, leaf_front), set(right - 0.06, sy1 - 0.06, leaf_front + 0.015), "garage_body");
+                }
+                add_box(set(left, sy1 - 0.01, leaf_front), set(right, sy1 + 0.01, leaf_front + 0.005), "trim");     // section joint
+            }
+        }
+        else {                                                                 // divided light: glass grid over panels
+            float gy0 = bottom + ph * 0.55;
+            int gc = max(4, int(width / 0.35)), gr = 3;
+            float gw = (width - 0.12) / gc, ghh = (leaf_top - gy0 - 0.12) / gr;
+            for (int r = 0; r < gr; r++)
+                for (int c = 0; c < gc; c++)
+                    add_box(set(left + 0.06 + c * gw + 0.02, gy0 + 0.06 + r * ghh + 0.02, leaf_front - 0.004),
+                            set(left + 0.06 + (c + 1) * gw - 0.02, gy0 + 0.06 + (r + 1) * ghh - 0.02, leaf_front + 0.003),
+                            garage_glass || gs == 4 ? "glass" : "garage_body");
+            int pc = max(2, int(width / 0.9)); float pw = (width - 0.12) / pc;
+            for (int c = 0; c < pc; c++)
+                add_box(set(left + 0.06 + c * pw + 0.05, bottom + 0.1, leaf_front), set(left + 0.06 + (c + 1) * pw - 0.05, gy0 - 0.06, leaf_front + 0.02), "garage_body");
+        }
+
+        // trim boards around the opening
+        add_box(set(left - garage_trim, bottom, 0), set(left, top, casing_d), "trim");
+        add_box(set(right, bottom, 0), set(right + garage_trim, top, casing_d), "trim");
+        add_box(set(left - garage_trim, top, 0), set(right + garage_trim, top + garage_trim * 1.3, casing_d * 1.3), "trim");
+    }
+}
+
+// ---------- pass 2: sort windows by floor, then left to right ----------
+float sort_key[];
+for (int i = 0; i < len(win_l); i++) append(sort_key, rint(win_b[i] * 100) * 10000 + win_l[i]);
+int order[] = argsort(sort_key);
+
+// ---------- pass 3: walk the sorted windows in GROUPS ----------
+// A group = neighbouring windows on the same floor (a pair or triple in one slot).
+// Each window gets its own frame + glass; the group shares ONE casing, sill and hood,
+// with a mullion board between the windows (like real paired Victorian windows).
+int n = len(order);
+int start = 0;
+while (start < n) {
+    int end = start;
+    while (end + 1 < n) {
+        int a = order[end], b = order[end + 1];
+        if (abs(win_b[b] - win_b[a]) > 0.001 || win_l[b] - win_r[a] > group_gap) break;
+        end++;
+    }
+
+    // ----- each window in the group: frame, glass, rails -----
+    for (int k = start; k <= end; k++) {
+        int   w      = order[k];
+        float left   = win_l[w], right = win_r[w], bottom = win_b[w], top = win_t[w];
+        float width  = right - left;
+        float back   = -recess;            // where the frame sits
+        float front  = back + frame_d;     // front face of the frame
+
+        float rise = sash_arched ? width * arch_rise_frac : 0.0;
+        int   segs = sash_arched ? arch_segments : 1;
+        vector outer[] = make_outline(left, right, bottom, top, 0.0, segs);
+        vector inner[] = make_outline(left + frame_w, right - frame_w, bottom + frame_w, top - frame_w, rise, segs);
+        add_ring(outer, front, inner, front, "sash");   // flat frame face (also fills the corners above an arch)
+        add_ring(inner, front, inner, back,  "sash");   // inside edge of the frame
+        add_ring(outer, back,  outer, front, "sash");   // outside edge (seen when the window is not recessed)
+        fill_outline(inner, back + 0.01, "glass");
+
+        float meet_y = bottom + (top - bottom) * 0.52;  // double-hung: where the two sashes meet
+        add_box(set(left + frame_w, meet_y - rail_h * 0.5, back), set(right - frame_w, meet_y + rail_h * 0.5, front), "sash");
+        add_box(set(left + frame_w, bottom + frame_w, back), set(right - frame_w, bottom + frame_w + rail_h, front), "sash");
+    }
+
+    // ----- the group's shared trim -----
+    float left   = win_l[order[start]];
+    float right  = win_r[order[end]];
+    float bottom = win_b[order[start]];
+    float top    = win_t[order[start]];
+
+    // jamb liners: line the recess with trim so the wall siding doesn't show inside the opening
+    if (recess > 0.001) {
+        add_box(set(left - 0.02, bottom, -recess), set(left, top, 0), "trim");
+        add_box(set(right, bottom, -recess), set(right + 0.02, top, 0), "trim");
+        add_box(set(left - 0.02, top, -recess), set(right + 0.02, top + 0.02, 0), "trim");
+        add_box(set(left - 0.02, bottom - 0.02, -recess), set(right + 0.02, bottom, 0), "trim");
+        for (int k = start; k < end; k++)
+            add_box(set(win_r[order[k]], bottom, -recess), set(win_l[order[k + 1]], top, 0), "trim");
+    }
+
+    // casing: outer boards + a mullion board between neighbouring windows
+    add_box(set(left - casing_w, bottom, 0), set(left, top, casing_d), "trim");                       // left
+    add_box(set(right, bottom, 0), set(right + casing_w, top, casing_d), "trim");                     // right
+    add_box(set(left - casing_w, top, 0), set(right + casing_w, top + casing_w, casing_d), "trim");   // head
+    for (int k = start; k < end; k++)
+        add_box(set(win_r[order[k]], bottom, 0), set(win_l[order[k + 1]], top, casing_d), "trim");   // mullion
+
+    // sill + apron
+    add_box(set(left - casing_w - sill_ext, bottom - sill_h, 0), set(right + casing_w + sill_ext, bottom, sill_d), "trim");
+    add_box(set(left - casing_w, bottom - sill_h - apron_h, 0), set(right + casing_w, bottom - sill_h, casing_d * 0.8), "trim");
+
+    // hood
+    float hood_base = top + casing_w;
+    float span_l = left - casing_w - sill_ext, span_r = right + casing_w + sill_ext;
+
+    float ear_h = hood_h * 0.9, ear_w = casing_w * 0.9, ear_d = hood_d * 0.75;   // little brackets ("ears") under the hood ends
+
+    if (hood_style == 0) {                                           // CORNICE: frieze with a panel + rosettes, dentils, brackets, cap
+        float frieze_h = hood_h * 0.6;
+        add_box(set(left - casing_w, hood_base, 0), set(right + casing_w, hood_base + frieze_h, casing_d), "trim");
+        add_box(set(left + 0.06, hood_base + 0.05, casing_d), set(right - 0.06, hood_base + frieze_h - 0.05, casing_d + 0.012), "panel_field");
+        rosette(set(left + 0.18, hood_base + frieze_h * 0.5, casing_d), frieze_h * 0.28, 0.035, "ornament");
+        rosette(set(right - 0.18, hood_base + frieze_h * 0.5, casing_d), frieze_h * 0.28, 0.035, "ornament");
+        float dy = hood_base + frieze_h;
+        for (float x = span_l + 0.04; x < span_r - 0.06; x += 0.1)
+            add_box(set(x, dy, 0), set(x + 0.05, dy + 0.05, hood_d * 0.6), "ornament");                      // dentils
+        add_box(set(span_l, dy + 0.05, 0), set(span_r, dy + 0.09, hood_d * 0.75), "trim");                   // bed mould
+        add_box(set(span_l - 0.04, dy + 0.09, 0), set(span_r + 0.04, hood_base + hood_h + 0.05, hood_d), "trim");   // cap
+        scroll_bracket(set((left - casing_w + left - casing_w + ear_w) * 0.5, dy, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, dy - (hood_base - ear_h), ear_d, "trim");   // ears
+        scroll_bracket(set((right + casing_w - ear_w + right + casing_w) * 0.5, dy, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, dy - (hood_base - ear_h), ear_d, "trim");
+    }
+    else if (hood_style == 1) {                                      // PEDIMENT: frieze + slab + triangle with a rosette, ears
+        float frieze_h = hood_h * 0.4;
+        add_box(set(left - casing_w, hood_base, 0), set(right + casing_w, hood_base + frieze_h, casing_d), "trim");
+        float slab_top = hood_base + frieze_h + 0.04;
+        add_box(set(span_l, hood_base + frieze_h, 0), set(span_r, slab_top, hood_d), "trim");
+        float cx = (span_l + span_r) * 0.5, peak = slab_top + ped_rise, d = hood_d * 0.85;
+        int tri[] = array(addpoint(0, set(span_l, slab_top, d)), addpoint(0, set(cx, peak, d)), addpoint(0, set(span_r, slab_top, d)));
+        setprimgroup(0, "trim", addprim(0, "poly", tri), 1);
+        add_quad(set(span_l, slab_top, 0), set(cx, peak, 0), set(cx, peak, d), set(span_l, slab_top, d), "trim");
+        add_quad(set(cx, peak, 0), set(span_r, slab_top, 0), set(span_r, slab_top, d), set(cx, peak, d), "trim");
+        rosette(set(cx, slab_top + ped_rise * 0.38, d), ped_rise * 0.22, 0.03, "ornament");
+        scroll_bracket(set((left - casing_w + left - casing_w + ear_w) * 0.5, hood_base + frieze_h, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, hood_base + frieze_h - (hood_base - ear_h), ear_d, "trim");
+        scroll_bracket(set((right + casing_w - ear_w + right + casing_w) * 0.5, hood_base + frieze_h, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, hood_base + frieze_h - (hood_base - ear_h), ear_d, "trim");
+    }
+    else if (hood_style == 2) {                                      // ARCH: stepped double band, tympanum panel, keystone, ears
+        float arch_l = left - casing_w, arch_r = right + casing_w;
+        float arch_rise = min((arch_r - arch_l) * 0.18, 0.3), d = hood_d * 0.8;
+        float band = hood_h * 0.45;
+        // tympanum: the curved panel between the head casing and the arch (accent colour)
+        int tp[];
+        for (int k = 0; k <= arch_segments; k++) {
+            float x = lerp(arch_l + 0.05, arch_r - 0.05, float(k) / arch_segments);
+            append(tp, addpoint(0, set(x, arch_height_at(x, arch_l, arch_r, hood_base + arch_rise, arch_rise) - 0.01, casing_d * 0.5)));
+        }
+        append(tp, addpoint(0, set(arch_r - 0.05, hood_base, casing_d * 0.5)));
+        append(tp, addpoint(0, set(arch_l + 0.05, hood_base, casing_d * 0.5)));
+        setprimgroup(0, "panel_field", addprim(0, "poly", tp), 1);
+        // two stepped bands: a deep outer band and a thinner inner bead
+        arch_band(arch_l - 0.04, arch_r + 0.04, hood_base, arch_rise, band, 0, d, arch_segments, "trim");
+        arch_band(arch_l, arch_r, hood_base - 0.035, arch_rise, 0.035, 0, d * 0.6, arch_segments, "trim");
+        arch_band(arch_l - 0.07, arch_r + 0.07, hood_base + band, arch_rise, 0.04, 0, d + 0.03, arch_segments, "trim");   // crown bead
+        // keystone: tapered block with a cap, in the pop colour
+        float cx = (arch_l + arch_r) * 0.5, ky = hood_base + arch_rise;
+        keystone(cx, ky - 0.14, ky + band + 0.05, 0.1, 0.17, 0, d + 0.04, "trim");
+        // ears under both ends of the arch
+        scroll_bracket(set((arch_l - 0.04 + arch_l - 0.04 + ear_w) * 0.5, hood_base + 0.02, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, hood_base + 0.02 - (hood_base - ear_h), ear_d, "trim");
+        scroll_bracket(set((arch_r + 0.04 - ear_w + arch_r + 0.04) * 0.5, hood_base + 0.02, 0), {-1, 0, 0}, {0, 0, 1}, ear_w, hood_base + 0.02 - (hood_base - ear_h), ear_d, "trim");
+    }
+    // hood_style 3: no hood
+
+    start = end + 1;
+}

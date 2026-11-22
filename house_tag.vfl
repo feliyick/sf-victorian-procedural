@@ -1,0 +1,28 @@
+// =====================================================================
+// house_tag  —  Attribute Wrangle, Run Over: Detail
+//   spare parms: house_id (int), bp_path (string: op:/path/to/<house>/building_params)
+// Tags every face + point of one house with i@house_id, and adds a few INFO points
+// (no faces) that row_layout and street_build read: the house's width/depth, and its
+// ground-floor bays (where front gardens must not go). row_layout removes them again.
+// =====================================================================
+int id = chi("house_id");
+string bp = chs("bp_path");
+for (int pr = 0; pr < nprimitives(0); pr++) setprimattrib(0, "house_id", pr, id);
+for (int pt = 0; pt < npoints(0); pt++) setpointattrib(0, "house_id", pt, id);
+float W = detail(bp, "W"), D = detail(bp, "D");
+int ip = addpoint(0, {0, 0, 0});
+setpointattrib(0, "info", ip, "house");
+setpointattrib(0, "house_id", ip, id);
+setpointattrib(0, "iw", ip, W);
+setpointattrib(0, "id_depth", ip, D);
+for (int p = 0; p < npoints(bp); p++) {
+    string nm = point(bp, "name", p);
+    int fl = point(bp, "floor", p);
+    if (startswith(nm, "bay") && fl == 0) {
+        vector mn = point(bp, "bbmin", p), mx = point(bp, "bbmax", p);
+        int bpt = addpoint(0, set(mn.x, 0, 0));
+        setpointattrib(0, "info", bpt, "bay0");
+        setpointattrib(0, "house_id", bpt, id);
+        setpointattrib(0, "iw", bpt, mx.x - mn.x);
+    }
+}

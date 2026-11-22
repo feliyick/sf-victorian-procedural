@@ -1,0 +1,254 @@
+// =====================================================================
+// city_backdrop  —  Attribute Wrangle, Run Over: Detail
+//   input 1: street_build (reads its detail attribs: hx0[], hx1[] house extents, far_back = back of the far sidewalk)
+//   spare parms: slope, xcentre, seed, gap, street_extend, clouds
+//
+// Everything past the hero block, so the street never ends in a void:
+//   1. low-detail houses continuing the row up and down the hill (same side)
+//   2. a row of low-detail houses across the street
+//   3. the city below the crest: hundreds of hazy blocks on the flat, fading into the distance
+//   4. hills behind (Twin Peaks style) with Sutro Tower on one of them
+//   5. a high dome with a cut-out cloud layer (material "clouds"), lit by the real sun + sky
+// Far things are tinted toward the sky colour (fake aerial perspective).
+// =====================================================================
+#include "street_lib.h"
+
+vector hazed(vector c; float d) { return lerp(c, {0.72, 0.77, 0.84}, clamp(d / 800.0, 0, 0.92)); }
+
+// a low-detail Victorian: body box, cornice band, a few dark windows per floor, maybe a gable or a bay.
+// face = +1 faces the street from the near side (front at z = zf), -1 faces it from the far side
+void proxy_house(float x0, x1, zf, fdir; int sid; float dist) {
+    vector pals[] = array({0.56, 0.65, 0.73}, {0.62, 0.67, 0.55}, {0.91, 0.82, 0.57}, {0.79, 0.62, 0.61}, {0.66, 0.63, 0.72},
+                          {0.43, 0.48, 0.53}, {0.38, 0.53, 0.54}, {0.92, 0.89, 0.79}, {0.72, 0.5, 0.42}, {0.92, 0.91, 0.88});
+    vector body = hazed(pals[int(rnd(sid * 7 + 1) * 9.999)], dist);
+    vector trim = hazed({0.95, 0.93, 0.87}, dist);
+    vector glass = hazed({0.05, 0.06, 0.07}, dist);
+    float xc = (x0 + x1) * 0.5, by = gy(xc);
+    int floors = rnd(sid * 7 + 2) < 0.25 ? 2 : 3;
+    float fh = 3.2 + 0.3 * rnd(sid * 7 + 3), H = floors * fh;
+    float D = 12;
+    float zb = zf - fdir * D;
+    lbox(set(x0, by - 1.5, min(zf, zb)), set(x1, by + H, max(zf, zb)), "siding", body);
+    // cornice band + crown
+    float zz = zf + fdir * 0.35;
+    lbox(set(x0 - 0.1, by + H - 0.6, min(zf, zz)), set(x1 + 0.1, by + H, max(zf, zz)), "trim", trim);
+    // gable or flat
+    if (rnd(sid * 7 + 4) < 0.4) {
+        float rise = (x1 - x0) * 0.32;
+        vector a = set(x0, by + H, zf), b = set(x1, by + H, zf), c = set(xc, by + H + rise, zf);
+        vector a2 = set(x0, by + H, zb), b2 = set(x1, by + H, zb), c2 = set(xc, by + H + rise, zb);
+        face(array(a, b, c), set(0, 0, fdir), "trim", body);
+        face(array(a2, b2, c2), set(0, 0, -fdir), "siding", body);
+        vector rfs[] = array({0.16, 0.16, 0.17}, {0.24, 0.28, 0.33}, {0.26, 0.32, 0.27}, {0.40, 0.22, 0.17}, {0.36, 0.28, 0.20});
+        vector rc = hazed(rfs[int(rnd(sid * 7 + 8) * 4.999)], dist);
+        face(array(a, c, c2, a2), set(-1, 1, 0), "roof", rc);
+        face(array(c, b, b2, c2), set(1, 1, 0), "roof", rc);
+    }
+    // a bay stack on one side
+    int bay = rnd(sid * 7 + 5) < 0.6;
+    float bx0 = x0 + 0.5, bx1 = x0 + (x1 - x0) * 0.45;
+    if (bay) lbox(set(bx0, by + fh * 0.6, min(zf, zf + fdir * 0.7)), set(bx1, by + H - 0.6, max(zf, zf + fdir * 0.7)), "siding", body);
+    // windows: dark quads with a trim surround, a little proud of the face
+    for (int f = 0; f < floors; f++) {
+        float wy0 = by + f * fh + fh * 0.3 + (f == 0 ? 0.4 : 0), wy1 = wy0 + fh * 0.5;
+        int nw = max(2, int((x1 - x0) / 1.6));
+        for (int w = 0; w < nw; w++) {
+            float wx = lerp(x0 + 0.7, x1 - 0.7, (w + 0.5) / nw);
+            float zw = (bay && wx > bx0 && wx < bx1 && f > 0) ? zf + fdir * 0.72 : zf + fdir * 0.02;
+            lbox(set(wx - 0.42, wy0 - 0.06, min(zw, zw + fdir * 0.04)), set(wx + 0.42, wy1 + 0.06, max(zw, zw + fdir * 0.04)), "trim", trim);
+            lbox(set(wx - 0.34, wy0, min(zw, zw + fdir * 0.05)), set(wx + 0.34, wy1, max(zw, zw + fdir * 0.05)), "glass_dark", glass);
+        }
+    }
+    // stoop block (short on the far side so the far sidewalk stays clear for cameras)
+    float sx = rnd(sid * 7 + 6) < 0.5 ? x1 - 1.6 : x0 + 0.4;
+    float sd = fdir > 0 ? 2.5 : 0.9;
+    lbox(set(sx, by - 0.3, min(zf, zf + fdir * sd)), set(sx + 1.2, by + (fdir > 0 ? 1.6 : 0.9), max(zf, zf + fdir * sd)), "trim", trim);
+}
+
+// a rounded hill (Twin Peaks style): smooth dome profile + gentle noise, closed underneath
+float hill_h(float r, R, hy) { float q = clamp(r / R, 0, 1); return hy * pow(1 - q * q, 1.6); }
+void hill(vector c; float r, hy; vector col) {
+    int nu = 64, nv = 16;
+    vector g[];
+    for (int j = 0; j <= nv; j++)
+        for (int i = 0; i < nu; i++) {
+            float ph = 2 * PI * i / nu, rr = r * (1 - float(j) / nv);
+            float wob = 1 + 0.08 * sin(ph * 3 + c.x * 0.01) + 0.05 * sin(ph * 7);
+            vector P = c + set(cos(ph) * rr * wob, 0, sin(ph) * rr * wob * 0.7);
+            P.y = c.y + hill_h(rr, r, hy) * (0.92 + 0.08 * sin(ph * 5));
+            append(g, P);
+        }
+    for (int j = 0; j < nv; j++)
+        for (int i = 0; i < nu; i++) {
+            int i2 = (i + 1) % nu;
+            vector a = g[j * nu + i], b = g[j * nu + i2], cc = g[(j + 1) * nu + i2], d = g[(j + 1) * nu + i];
+            // grass on the slopes, a little drier (tan) near the top
+            float t = clamp((a.y - c.y) / hy, 0, 1);
+            vector cl = lerp(col, col * {1.25, 1.12, 0.85}, t * 0.6);
+            face(array(a, b, cc, d), (a + cc) * 0.5 - c + {0, 200, 0}, "soil", cl);
+        }
+}
+
+// a simple tree: trunk + a cluster of lumpy blobs (hazed with distance)
+float rf(float s) { float r = rand(s); return r; }       // rand() as a float, no ambiguity
+void bg_tree(vector base; float h, r; int id; float dist) {
+    vector g = lerp({0.20, 0.32, 0.14}, {0.34, 0.42, 0.18}, rf(id * 3.1));
+    if (rf(id * 5.7) < 0.15) g = lerp(g, {0.55, 0.42, 0.16}, 0.5);
+    cyl(base, r * 0.1, r * 0.07, h, 6, "bark", hazed({0.33, 0.27, 0.22}, dist));
+    int nb = dist > 400 ? 3 : 7;
+    for (int i = 0; i < nb; i++) {
+        vector o = set(rf(id * 11 + i) - 0.5, rf(id * 13 + i) * 0.6, rf(id * 17 + i) - 0.5) * r * 1.3;
+        blob(base + set(0, h, 0) + o, r * (0.45 + 0.25 * rf(id * 19 + i)), id * 23 + i, "leaf", hazed(g * (0.85 + 0.3 * rf(id * 29 + i)), dist));
+    }
+}
+
+float gap = chf("gap"), ext = chf("street_extend");
+float hx0[] = detail(1, "hx0"), hx1[] = detail(1, "hx1");
+int nh = len(hx0);
+if (nh == 0) return;
+float X0 = hx0[0] - ext, X1 = hx1[nh - 1] + ext;
+float camx = chf("xcentre");
+
+// 1. the row continues up and down the hill (same side)
+int sid = 0;
+float x = hx0[0] - gap;
+while (x > X0 - 4 && sid < 60) {
+    float w = 6 + 4 * rnd(100 + sid);
+    proxy_house(x - w, x, 0.0, 1, 200 + sid, abs(x - camx));
+    x -= w + gap * (rnd(150 + sid) < 0.5 ? 0.0 : 1.0); sid++;
+}
+x = hx1[nh - 1] + gap;
+while (x < X1 + 4 && sid < 120) {
+    float w = 6 + 4 * rnd(300 + sid);
+    proxy_house(x, x + w, 0.0, 1, 400 + sid, abs(x - camx));
+    x += w + gap * (rnd(350 + sid) < 0.5 ? 0.0 : 1.0); sid++;
+}
+// 2. across the street (facing the hero row), from one end to the other
+float zfar = detail(1, "far_back") + 0.3;
+x = X0;
+while (x < X1 && sid < 260) {
+    float w = 6 + 4.5 * rnd(500 + sid);
+    proxy_house(x, x + w, zfar, -1, 600 + sid, abs(x - camx) + 20);
+    x += w + (rnd(550 + sid) < 0.6 ? 0.05 : gap); sid++;
+}
+// backyard trees poking up behind both rows (SF back gardens), and street trees on the far side's back lots
+for (int i = 0; i < 140; i++) {
+    float tx = lerp(X0, X1, rnd(9000 + i));
+    int far = rnd(9100 + i) < 0.45;
+    float tz = far ? zfar + 14 + 10 * rnd(9200 + i) : -14 - 12 * rnd(9200 + i);
+    float h = 6 + 6 * rnd(9300 + i), r = 2.2 + 2.0 * rnd(9400 + i);
+    bg_tree(set(tx, gy(tx) - 0.5, tz), h, r, 9500 + i, abs(tx - camx) * 0.5);
+}
+// ground beyond the far houses and behind ours
+sbox(X0 - 400, X1 + 60, zfar + 12, zfar + 900, -2, -0.05, "soil", {0.38, 0.4, 0.32});
+
+// ground behind our row, so backyard trees stand on something
+sbox(X0 - 400, X1 + 60, -900, -12, -2, -0.3, "soil", {0.36, 0.38, 0.28});        // backyards + hillside far behind the row (fills aerial shots)
+
+// 3. the city below the crest (downhill, past the end of the street)
+float base = gy(X1) - 1.0;
+float cflat = base - 70;          // the city sits well below the crest (mostly hidden by it from street level)
+{
+    vector P0[] = array(set(X1, base, -1500), set(X1 + 220, cflat, -1500), set(X1 + 220, cflat, 1500), set(X1, base, 1500));
+    face(P0, {0, 1, 0}, "soil", hazed({0.42, 0.45, 0.36}, 300));                       // the hillside dropping away
+    P0 = array(set(X1 + 220, cflat, -1500), set(X1 + 2500, cflat - 30, -1500), set(X1 + 2500, cflat - 30, 1500), set(X1 + 220, cflat, 1500));
+    face(P0, {0, 1, 0}, "concrete", hazed({0.5, 0.52, 0.5}, 900));
+    for (int i = 0; i < 900; i++) {
+        float d = 520 + 1500 * pow(rnd(1000 + i), 1.4);
+        float ang = radians(lerp(-75, 75, rnd(2000 + i)));
+        float cx = X1 + cos(ang) * d, cz = sin(ang) * d;
+        if (abs(cz) < 40 && cx < X1 + 120) continue;                    // keep the end of the street open
+        float t = clamp((cx - X1) / 2500.0, 0, 1);
+        float gyc = lerp(cflat, cflat - 30, t);
+        float w = 8 + 22 * rnd(3000 + i), dd = 8 + 22 * rnd(4000 + i);
+        float h = 6 + 18 * rnd(5000 + i) + (rnd(6000 + i) < 0.06 ? 60 * rnd(7000 + i) : 0);   // the odd tower
+        vector c = lerp({0.86, 0.84, 0.8}, {0.7, 0.72, 0.75}, rnd(8000 + i));
+        lbox(set(cx - w * 0.5, gyc - 3, cz - dd * 0.5), set(cx + w * 0.5, gyc + h, cz + dd * 0.5), "siding", hazed(c, d));
+    }
+}
+
+// trees among the city blocks and on the hills (cheap clusters, heavily hazed)
+for (int i = 0; i < 260; i++) {
+    float d = 280 + 1500 * pow(rnd(12000 + i), 1.2);
+    float ang = radians(lerp(-80, 80, rnd(12100 + i)));
+    float cx = X1 + cos(ang) * d, cz = sin(ang) * d;
+    float t = clamp((cx - X1) / 2500.0, 0, 1);
+    bg_tree(set(cx, lerp(cflat, cflat - 30, t), cz), 8 + 5 * rnd(12200 + i), 4 + 3 * rnd(12300 + i), 12400 + i, d);
+}
+// 4. hills behind the houses, Sutro Tower on the tallest
+vector hc = hazed({0.34, 0.42, 0.24}, 500);
+hill(set(X0 - 200, gy(X0) - 20, -900), 700, 150, hc);
+hill(set(camx + 400, gy(camx) - 40, -1500), 900, 200, hazed({0.36, 0.42, 0.26}, 650));
+// eucalyptus / cypress on the hillsides
+for (int i = 0; i < 120; i++) {
+    int which = i % 2;
+    vector hcen = which ? set(camx + 400, gy(camx) - 40, -1500) : set(X0 - 200, gy(X0) - 20, -900);
+    float hr = which ? 900 : 700, hh = which ? 200 : 150;
+    float a = 2 * PI * rnd(13000 + i), rr = hr * sqrt(rnd(13100 + i)) * 0.85;
+    vector p = hcen + set(cos(a) * rr, hill_h(rr, hr, hh) * 0.92, sin(a) * rr * 0.7);
+    bg_tree(p, 10 + 8 * rnd(13200 + i), 8 + 6 * rnd(13300 + i), 13400 + i, 600);
+}
+{
+    vector tb = set(camx + 400, gy(camx) - 40 + 200 * 0.97, -1500);
+    vector red = hazed({0.75, 0.2, 0.15}, 700), white = hazed({0.92, 0.92, 0.9}, 700);
+    for (int leg = 0; leg < 3; leg++) {
+        float a = 2 * PI * leg / 3 + 0.4;
+        vector foot = tb + set(cos(a), 0, sin(a)) * 28, top = tb + set(cos(a), 0, sin(a)) * 6 + set(0, 290, 0);
+        for (int sgm = 0; sgm < 6; sgm++) {
+            vector p0 = lerp(foot, top, sgm / 6.0), p1 = lerp(foot, top, (sgm + 1) / 6.0);
+            hcyl(p0, p1, 2.2 - sgm * 0.2, 6, "street_paint", sgm % 2 ? white : red);
+        }
+    }
+    for (int lvl = 1; lvl <= 3; lvl++) {                                  // the cross arms
+        float y = lvl == 1 ? 150 : (lvl == 2 ? 210 : 280);
+        float sp = lerp(28.0, 6.0, y / 290.0) + 14;
+        lbox(tb + set(-sp, y, -2), tb + set(sp, y + 6, 2), "street_paint", lvl % 2 ? red : white);
+    }
+}
+
+// 5. cloud layer: a dome cap high above everything, the cloud pattern lives in the material
+if (chi("clouds")) {
+    float R = 3500;
+    vector c = set(camx, 0, 0);
+    int nu = 72, nv = 12;
+    float e0 = radians(11), e1 = radians(80);
+    vector g[];
+    for (int j = 0; j <= nv; j++)
+        for (int i = 0; i < nu; i++) {
+            float el = lerp(e0, e1, float(j) / nv), az = 2 * PI * i / nu;
+            append(g, c + set(cos(el) * cos(az), sin(el) * 0.35, cos(el) * sin(az)) * R);
+        }
+    for (int j = 0; j < nv; j++)
+        for (int i = 0; i < nu; i++) {
+            int i2 = (i + 1) % nu;
+            vector a = g[j * nu + i], b = g[j * nu + i2], cc = g[(j + 1) * nu + i2], d = g[(j + 1) * nu + i];
+            face(array(a, b, cc, d), c - (a + cc) * 0.5, "clouds", {1, 1, 1});        // facing down, toward the street
+        }
+}
+
+// 6. NIGHT SKY: a huge inward-facing dome with a navy gradient (material "sky" = pure emission), only when
+//    night_sky is on. Hides whatever was making the night sky pale.
+if (chi("night_sky")) {
+    float R = 4500;
+    vector c = set(chf("xcentre"), 0, 0);
+    int nu = 96, nv = 48;
+    int ids[];
+    for (int j = 0; j <= nv; j++)
+        for (int i = 0; i < nu; i++) {
+            float el = lerp(radians(-12.0), radians(90.0), float(j) / nv), az = 2 * PI * i / nu;
+            vector P = c + set(cos(el) * cos(az), sin(el), cos(el) * sin(az)) * R;
+            float t = clamp(P.y / (R * 0.5), 0, 1);                                   // 0 at the horizon, 1 high up
+            vector glow = {0.24, 0.21, 0.22}, mid = {0.09, 0.1, 0.15}, top = {0.025, 0.03, 0.05};   // city skyglow -> muted blue-grey -> near black
+            float tt = smooth(0, 1, pow(t, 0.5));
+            vector col = tt < 0.35 ? lerp(glow, mid, tt / 0.35) : lerp(mid, top, (tt - 0.35) / 0.65);
+            int pt = addpoint(0, P);
+            setpointattrib(0, "skycol", pt, pow(col, 2.2));                           // linear, read by the 'sky' material
+            append(ids, pt);
+        }
+    for (int j = 0; j < nv; j++)
+        for (int i = 0; i < nu; i++) {
+            int i2 = (i + 1) % nu;
+            int pr = addprim(0, "poly", array(ids[j * nu + i], ids[(j + 1) * nu + i], ids[(j + 1) * nu + i2], ids[j * nu + i2]));
+            tag(pr, "sky", {0.02, 0.03, 0.08});
+        }
+}

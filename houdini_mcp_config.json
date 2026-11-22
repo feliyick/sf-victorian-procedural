@@ -1,0 +1,69 @@
+{
+  "allowed_roots": [
+    "/obj/sf_house_geometry",
+    "/stage",
+    "/out"
+  ],
+  "allow_python": false,
+  "check_nodes": [
+    "/obj/sf_house_geometry/victorian_house",
+    "/obj/sf_house_geometry/OUT_STREET",
+    "/stage/sfh_karma_render"
+  ],
+  "watch_parms": {
+    "/obj/sf_house_geometry/victorian_house": [
+      "seed",
+      "style_choice",
+      "palette_choice",
+      "roof_choice"
+    ],
+    "/obj/sf_house_geometry/STREET_CONTROLS": [
+      "row_count",
+      "slope",
+      "gap",
+      "seed",
+      "editable",
+      "clouds",
+      "night_sky"
+    ]
+  },
+  "karma_lop": "/stage/sfh_karma_render",
+  "look_switch": "/stage/sfh_look",
+  "looks": {
+    "golden": 0,
+    "fog": 1,
+    "original": 2,
+    "dusk": 3,
+    "sunny": 4,
+    "night": 5
+  },
+  "look_parms": {
+    "night": {
+      "/obj/sf_house_geometry/STREET_CONTROLS/night_sky": 1,
+      "/obj/sf_house_geometry/STREET_CONTROLS/clouds": 0
+    },
+    "sunny": {
+      "/obj/sf_house_geometry/STREET_CONTROLS/night_sky": 0,
+      "/obj/sf_house_geometry/STREET_CONTROLS/clouds": 1
+    },
+    "golden": {
+      "/obj/sf_house_geometry/STREET_CONTROLS/night_sky": 0,
+      "/obj/sf_house_geometry/STREET_CONTROLS/clouds": 1
+    },
+    "dusk": {
+      "/obj/sf_house_geometry/STREET_CONTROLS/night_sky": 0,
+      "/obj/sf_house_geometry/STREET_CONTROLS/clouds": 1
+    }
+  },
+  "camera_insert_before": "/stage/sfh_shot_cam",
+  "occluder_sops": [
+    "/obj/sf_house_geometry/OUT_STREET"
+  ],
+  "front_axis": [
+    0,
+    0,
+    1
+  ],
+  "auto_save": true,
+  "allow_reload": true
+}

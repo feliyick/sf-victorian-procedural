@@ -1,0 +1,525 @@
+// =====================================================================
+// roof_build (v2)  —  Attribute Wrangle, Run Over: Detail
+//   input 1: empty
+//   input 2: building_params           (W, D, building_h, style, roof_type, bay slot points)
+//   input 3: roof_outline              (the house's top outline INCLUDING the bays, one polygon)
+//
+// v2 idea: a Victorian roofline follows the BAYS. So the cornice is a moulding profile
+// swept along the street-facing edges of the real roof outline (wall + bay tops), and
+// the Queen Anne gable sits over the bay column, out at the bay's front.
+//
+//   roof_type 0 CORNICE      parapet + bracketed cornice (+ dentils on Italianates)
+//   roof_type 1 GABLE        low cornice band, then a front gable over the bay column
+//   roof_type 2 FALSE FRONT  tall parapet, square brackets, small pediment on top
+//
+// Groups: parapet (-> body) | trim | roof | shingle | glass | sash
+// =====================================================================
+#include "facade_lib.h"
+
+// ---------- an oriented box: x along "across", y up, z along "out" ----------
+// (across, up, out) must be right-handed, so across = -edge_direction for an outward "out")
+void add_obox(vector origin, across, out; float u0, u1, v0, v1, w0, w1; string grp) {
+    vector up = {0, 1, 0};
+    // corner pUVW: U/V/W = 0 or 1 for the low/high end along across/up/out (same layout as add_box)
+    vector p000 = origin + across*u0 + up*v0 + out*w0, p100 = origin + across*u1 + up*v0 + out*w0;
+    vector p010 = origin + across*u0 + up*v1 + out*w0, p110 = origin + across*u1 + up*v1 + out*w0;
+    vector p001 = origin + across*u0 + up*v0 + out*w1, p101 = origin + across*u1 + up*v0 + out*w1;
+    vector p011 = origin + across*u0 + up*v1 + out*w1, p111 = origin + across*u1 + up*v1 + out*w1;
+    add_quad(p011, p111, p101, p001, grp);   // front (+out)
+    add_quad(p110, p010, p000, p100, grp);   // back
+    add_quad(p111, p110, p100, p101, grp);   // +across side
+    add_quad(p010, p011, p001, p000, grp);   // -across side
+    add_quad(p010, p110, p111, p011, grp);   // top
+    add_quad(p001, p101, p100, p000, grp);   // bottom
+}
+
+// offset direction at a vertex: mitred between two kept edges, plain at the ends of a run
+vector miter(vector n0, n1) {
+    float k = max(1.0 + dot(n0, n1), 0.3);
+    return (n0 + n1) / k;
+}
+
+// ---------- one gable from x = gl to gr, base at y1, face at z = gz, running back to zb ----------
+// rake_l / rake_r: roof overhang past each side (0 where two gables meet in a valley)
+// a slot for the ornament node (carved scrolls / sprays / sunbursts are grown there later)
+void emit_slot(int type; vector P, u, n; float w, h) {
+    int pt = addpoint(0, P);
+    setpointattrib(0, "name", pt, "orn_slot");
+    setpointattrib(0, "orn_type", pt, type);
+    setpointattrib(0, "orn_u", pt, u);
+    setpointattrib(0, "orn_n", pt, n);
+    setpointattrib(0, "orn_w", pt, w);
+    setpointattrib(0, "orn_h", pt, h);
+}
+
+// which edge of a run the arc length s falls on
+int run_edge(float s; float cum[]) {
+    int m = len(cum) - 1;
+    for (int i = 0; i < m; i++) if (s <= cum[i + 1]) return i;
+    return m - 1;
+}
+
+void build_gable(float gl, gr, y1, gz, zb, rake_l, rake_r) {
+    // pitch from the slider, but the gable never rises more than gable_max_rise x the facade height
+    // (wide houses at a fixed pitch get absurdly tall gables)
+    float half_span = (gr - gl) * 0.5;
+    float rise = min(half_span * tan(radians(chf("gable_pitch"))), detail(1, "building_h") * chf("gable_max_rise"));
+    float slope = rise / half_span;
+    float half = (gl + gr) * 0.5, peak = y1 + rise;
+    float zf = gz + chf("gable_overhang"), t = 0.12;
+    float xl = gl - rake_l, xr = gr + rake_r;
+    float yl = y1 - rake_l * slope, yr = y1 - rake_r * slope;
+
+    int tri_b[] = array(addpoint(0, set(gr, y1, zb)), addpoint(0, set(half, peak, zb)), addpoint(0, set(gl, y1, zb)));
+    setprimgroup(0, "parapet", addprim(0, "poly", tri_b), 1);
+    add_quad(set(xl, yl, zb), set(half, peak, zb), set(half, peak, zf), set(xl, yl, zf), "roof");
+    add_quad(set(half, peak, zb), set(xr, yr, zb), set(xr, yr, zf), set(half, peak, zf), "roof");
+    add_quad(set(xl, yl - t, zf), set(half, peak - t, zf), set(half, peak - t, zb), set(xl, yl - t, zb), "trim");
+    add_quad(set(half, peak - t, zf), set(xr, yr - t, zf), set(xr, yr - t, zb), set(half, peak - t, zb), "trim");
+    add_quad(set(xl, yl - t, zb), set(xl, yl, zb), set(xl, yl, zf), set(xl, yl - t, zf), "trim");
+    add_quad(set(xr, yr - t, zf), set(xr, yr, zf), set(xr, yr, zb), set(xr, yr - t, zb), "trim");
+    // raking boards on the gable face
+    float bwd = chf("barge_w"), zz = gz + 0.04;
+    add_quad(set(gl, y1, zz), set(gl, y1 + bwd, zz), set(half, peak + 0.02, zz), set(half, peak - bwd + 0.02, zz), "trim");
+    add_quad(set(half, peak - bwd + 0.02, zz), set(half, peak + 0.02, zz), set(gr, y1 + bwd, zz), set(gr, y1, zz), "trim");
+
+    // attic windows: a group of TALL windows (about 1:2), sized from the gable, sitting low in the triangle
+    float span   = gr - gl;
+    float win_b  = y1 + 0.35;                                   // just above the entablature
+    float win_h  = clamp(rise * 0.45, 0.9, 1.9);
+    float win_w  = win_h * 0.5;
+    // the group has to fit inside the triangle at the window's top edge
+    float fit_w  = (span * (1 - (win_b + win_h + 0.15 - y1) / rise)) * 0.8;
+    float gap    = 0.12, cw = 0.1;
+    int   count  = clamp(int(floor((fit_w + gap) / (win_w + gap))), 0, 3);
+
+    // ---- the shingled gable face, with a HOLE where the windows go (so the room behind shows) ----
+    // x of the left / right rake at height y
+    float run = half - gl;
+    if (count == 0) {
+        int tri[] = array(addpoint(0, set(gl, y1, gz)), addpoint(0, set(half, peak, gz)), addpoint(0, set(gr, y1, gz)));
+        setprimgroup(0, "shingle", addprim(0, "poly", tri), 1);
+        emit_slot(3, set(half, y1 + 0.2, gz), {1, 0, 0}, {0, 0, 1}, span * 0.6, rise * 0.7);
+        return;
+    }
+    float total  = count * win_w + (count - 1) * gap;
+    float l0 = half - total * 0.5, r0 = l0 + total;
+    float hb = win_b, ht = win_b + win_h;                       // hole = the glass area
+    float xl_b = gl + (hb - y1) / rise * run, xr_b = gr - (hb - y1) / rise * run;
+    float xl_t = gl + (ht - y1) / rise * run, xr_t = gr - (ht - y1) / rise * run;
+    // below the hole
+    setprimgroup(0, "shingle", addprim(0, "poly", array(addpoint(0, set(gl, y1, gz)), addpoint(0, set(xl_b, hb, gz)),
+                 addpoint(0, set(xr_b, hb, gz)), addpoint(0, set(gr, y1, gz)))), 1);
+    // left + right of the hole
+    setprimgroup(0, "shingle", addprim(0, "poly", array(addpoint(0, set(xl_b, hb, gz)), addpoint(0, set(xl_t, ht, gz)),
+                 addpoint(0, set(l0, ht, gz)), addpoint(0, set(l0, hb, gz)))), 1);
+    setprimgroup(0, "shingle", addprim(0, "poly", array(addpoint(0, set(r0, hb, gz)), addpoint(0, set(r0, ht, gz)),
+                 addpoint(0, set(xr_t, ht, gz)), addpoint(0, set(xr_b, hb, gz)))), 1);
+    // above the hole
+    setprimgroup(0, "shingle", addprim(0, "poly", array(addpoint(0, set(xl_t, ht, gz)), addpoint(0, set(half, peak, gz)),
+                 addpoint(0, set(xr_t, ht, gz)))), 1);
+    // reveal: line the hole's sides so you can't see past the gable face
+    add_box(set(l0 - 0.02, hb, gz - 0.12), set(l0, ht, gz), "trim");
+    add_box(set(r0, hb, gz - 0.12), set(r0 + 0.02, ht, gz), "trim");
+    add_box(set(l0, ht, gz - 0.12), set(r0, ht + 0.02, gz), "trim");
+    add_box(set(l0, hb - 0.02, gz - 0.12), set(r0, hb, gz), "trim");
+
+    add_box(set(l0 - cw - 0.05, win_b - 0.07, gz), set(r0 + cw + 0.05, win_b, gz + 0.1), "trim");             // shared sill
+    add_box(set(l0 - cw, win_b + win_h, gz), set(r0 + cw, win_b + win_h + cw * 1.4, gz + 0.09), "trim");       // shared head
+    add_box(set(l0 - cw, win_b, gz), set(l0, win_b + win_h, gz + 0.06), "trim");                                // outer casings
+    add_box(set(r0, win_b, gz), set(r0 + cw, win_b + win_h, gz + 0.06), "trim");
+    // ornament slots: a spray in each side triangle, a sunburst in the peak
+    float base_y = y1 + 0.2;
+    float in_l = l0 - cw - 0.1, in_r = r0 + cw + 0.1;
+    float sw = in_l - (gl + 0.3);
+    float sh = (in_l - gl) / run * rise - (base_y - y1) - 0.15;
+    if (sw > 0.4 && sh > 0.3) {
+        emit_slot(2, set(in_l, base_y, gz), {-1, 0, 0}, {0, 0, 1}, sw, sh);
+        emit_slot(2, set(in_r, base_y, gz), {1, 0, 0}, {0, 0, 1}, sw, sh);
+    }
+    float pk_y = win_b + win_h + cw * 1.4 + 0.12;
+    float pk_h = peak - pk_y - 0.18;
+    float pk_w = span * (1 - (pk_y - y1) / rise) * 0.75;
+    if (pk_h > 0.25) emit_slot(3, set(half, pk_y, gz), {1, 0, 0}, {0, 0, 1}, pk_w, pk_h);
+
+    float gzg = gz - 0.06;                                                                                     // glass set back in the hole
+    for (int i = 0; i < count; i++) {
+        float l = l0 + i * (win_w + gap), r = l + win_w;
+        if (i > 0) add_box(set(l - gap, win_b, gzg), set(l, win_b + win_h, gz + 0.06), "trim");                // mullion
+        add_box(set(l, win_b + win_h * 0.49, gzg), set(r, win_b + win_h * 0.53, gzg + 0.04), "sash");          // meeting rail
+        add_quad(set(l, win_b, gzg), set(l, win_b + win_h, gzg), set(r, win_b + win_h, gzg), set(r, win_b, gzg), "glass");
+    }
+}
+
+// point / outward normal / direction at arc length s along a run of edges
+void run_eval(float s; vector rp[]; vector rn[]; vector rd[]; float cum[]; export vector P; export vector N; export vector D) {
+    int m = len(rn);
+    int k = m - 1;
+    for (int i = 0; i < m; i++) if (s <= cum[i + 1]) { k = i; break; }
+    float t = clamp((s - cum[k]) / max(cum[k + 1] - cum[k], 1e-6), 0, 1);
+    P = lerp(rp[k], rp[k + 1], t); N = rn[k]; D = rd[k];
+}
+
+// a raised strip on the frieze following the run from s0 to s1: heights y0..y1 (relative to the
+// outline), standing out from w0 to w1. Front + top + bottom + end faces.
+void sweep_strip(float s0, s1, y0, y1, w0, w1; string grp; vector rp[]; vector rn[]; vector rd[]; float cum[]) {
+    int m = max(1, int((s1 - s0) / 0.12));
+    vector up = {0, 1, 0};
+    vector fl[], fh[], bl[], bh[];
+    for (int i = 0; i <= m; i++) {
+        vector P, N, D;
+        run_eval(lerp(s0, s1, float(i) / m), rp, rn, rd, cum, P, N, D);
+        append(fl, P + N * w1 + up * y0); append(fh, P + N * w1 + up * y1);
+        append(bl, P + N * w0 + up * y0); append(bh, P + N * w0 + up * y1);
+    }
+    for (int i = 0; i < m; i++) {
+        add_quad(fh[i], fh[i + 1], fl[i + 1], fl[i], grp);      // front
+        add_quad(bh[i], bh[i + 1], fh[i + 1], fh[i], grp);      // top
+        add_quad(fl[i], fl[i + 1], bl[i + 1], bl[i], grp);      // bottom
+    }
+    add_quad(bh[0], fh[0], fl[0], bl[0], grp);
+    add_quad(fh[m], bh[m], bl[m], fl[m], grp);
+}
+
+// weighted pick: returns the index whose weight band r (0..1) falls into
+int pick_w(float r; float w[]) {
+    float tot = 0;
+    for (int i = 0; i < len(w); i++) tot += w[i];
+    float acc = 0;
+    for (int i = 0; i < len(w); i++) { acc += w[i] / tot; if (r < acc) return i; }
+    return len(w) - 1;
+}
+
+float W = detail(1, "W"), D = detail(1, "D"), H = detail(1, "building_h");
+int   style = detail(1, "style"), roof_type = detail(1, "roof_type");
+
+float proj     = chf("cornice_proj");
+float frieze_h = chf("frieze_h");
+float ph       = roof_type == 2 ? chf("falsefront_h") : (roof_type == 1 ? chf("gable_cornice_h") : chf("parapet_h"));
+float fz       = min(frieze_h, ph);
+
+// ---------- cornice character: chosen per house from the seed (or set on the Roof tab) ----------
+// bracket style  [scroll, console, block, quarter]      per house style: Italianate, Stick, Queen Anne
+float bs_w[] = array(0.35, 0.15, 0.10, 0.40);
+if (style == 0) bs_w = array(0.30, 0.55, 0.05, 0.10);
+if (style == 1) bs_w = array(0.15, 0.20, 0.55, 0.10);
+// layout         [even, paired, at corners, big + small]
+float lay_w[] = array(0.30, 0.15, 0.25, 0.30);
+if (style == 0) lay_w = array(0.25, 0.40, 0.25, 0.10);
+if (style == 1) lay_w = array(0.35, 0.10, 0.30, 0.25);
+int b_style = chi("bracket_style") - 1;                       // menu: 0 Auto, 1 Scroll, 2 Console, 3 Block, 4 Quarter
+if (b_style < 0) b_style = pick_w(rand_range(0, 1, 301), bs_w);
+int c_layout = chi("cornice_layout") - 1;                     // menu: 0 Auto, 1 Even, 2 Paired, 3 At Corners, 4 Big + Small
+if (c_layout < 0) c_layout = pick_w(rand_range(0, 1, 302), lay_w);
+float b_size = chf("bracket_scale") * (chi("bracket_style") == 0 ? rand_range(0.85, 1.25, 303) : 1.0);
+float b_space = chf("bracket_spacing") * (chi("cornice_layout") == 0 ? rand_range(0.75, 1.45, 304) : 1.0);
+float dent_gap_k = rand_range(0.8, 1.3, 305);
+
+// =====================================================================
+// 1. the outline: biggest polygon of input 3, cleaned, counter-clockwise (seen from above)
+// =====================================================================
+int best = -1; float best_area = 0;
+for (int pr = 0; pr < nprimitives(2); pr++) {
+    float a = primintrinsic(2, "measuredarea", pr);
+    a = abs(a);
+    if (a > best_area) { best_area = a; best = pr; }
+}
+vector raw[];
+if (best >= 0)
+    foreach (int pt; primpoints(2, best)) {
+        vector p_in = point(2, "P", pt);
+        append(raw, p_in);
+    }
+
+// drop duplicates and nearly-straight points (they make tiny edges and bad corners)
+vector pts[];
+int n_raw = len(raw);
+for (int i = 0; i < n_raw; i++) {
+    vector a = raw[(i - 1 + n_raw) % n_raw], b = raw[i], c = raw[(i + 1) % n_raw];
+    vector e0 = set(b.x - a.x, 0, b.z - a.z), e1 = set(c.x - b.x, 0, c.z - b.z);
+    if (length(e1) < 0.01) continue;
+    if (length(e0) > 0.01 && abs(cross(normalize(e0), normalize(e1)).y) < 0.02) continue;
+    append(pts, b);                                   // keep the outline's own height (top of the bay caps / roof slab)
+}
+int n = len(pts);
+float Ht = n > 0 ? pts[0].y : H;                       // the cornice starts here
+
+// make it counter-clockwise: signed area (x,z) must be positive
+float area2 = 0;
+for (int i = 0; i < n; i++) { vector a = pts[i], b = pts[(i + 1) % n]; area2 += a.x * b.z - b.x * a.z; }
+if (area2 < 0) pts = reverse(pts);
+
+// per edge: direction, outward normal, and "faces the street?"
+vector edir[], enrm[]; int keep[];
+for (int i = 0; i < n; i++) {
+    vector e = pts[(i + 1) % n] - pts[i]; e.y = 0;
+    vector d = normalize(e);
+    vector nn = set(d.z, 0, -d.x);                        // outward for a counter-clockwise outline
+    float  midz = (pts[i].z + pts[(i + 1) % n].z) * 0.5;
+    append(edir, d); append(enrm, nn);
+    append(keep, (nn.z > -0.7 && midz > -1.5) ? 1 : 0);  // front + bay edges only (not sides / back)
+}
+
+
+// =====================================================================
+// 2. the cornice: a moulding profile swept along every kept edge
+//    profile = list of (out, up) steps measured from the wall top at height H
+// =====================================================================
+// profile, bottom to top: parapet wall | architrave band | frieze face | bed mould | corona | crown | roof
+float prof_o[] = array(0.0,  0.0,     0.07,    0.07,          0.03,          0.03,         proj*0.3,     proj*0.55,     proj,          proj,      proj+0.04, proj+0.04, -0.3);
+float prof_h[] = array(0.0,  ph - fz, ph - fz, ph - fz + 0.09, ph - fz + 0.09, ph - fz*0.2, ph - fz*0.2,  ph - fz*0.12,  ph - fz*0.12,  ph - 0.03, ph - 0.03, ph,        ph);
+string prof_g[] = array("parapet", "trim", "trim", "trim",        "trim",        "trim",       "trim",       "trim",        "trim",        "trim",    "trim",    "roof");
+int np = len(prof_o);
+
+for (int i = 0; i < n; i++) {
+    if (roof_type == 1) break;                           // gables use the full-width entablature instead
+    if (!keep[i]) continue;
+    int i0 = i, i1 = (i + 1) % n, ip = (i - 1 + n) % n, inext = (i + 1) % n;
+    vector off0 = keep[ip] ? miter(enrm[ip], enrm[i]) : enrm[i];
+    vector off1 = keep[inext] ? miter(enrm[i], enrm[inext]) : enrm[i];
+    for (int k = 0; k < np - 1; k++) {
+        vector a = pts[i0] + off0 * prof_o[k]   + set(0, prof_h[k], 0);
+        vector b = pts[i1] + off1 * prof_o[k]   + set(0, prof_h[k], 0);
+        vector c = pts[i1] + off1 * prof_o[k+1] + set(0, prof_h[k+1], 0);
+        vector d = pts[i0] + off0 * prof_o[k+1] + set(0, prof_h[k+1], 0);
+        add_quad(a, b, c, d, prof_g[k]);
+    }
+    if (!keep[ip]) {
+        int cap[]; for (int k = np - 1; k >= 0; k--) { int cp = addpoint(0, pts[i0] + off0 * prof_o[k] + set(0, prof_h[k], 0)); append(cap, cp); }
+        setprimgroup(0, "trim", addprim(0, "poly", cap), 1);
+    }
+    if (!keep[inext]) {
+        int cap[]; for (int k = 0; k < np; k++) { int cp = addpoint(0, pts[i1] + off1 * prof_o[k] + set(0, prof_h[k], 0)); append(cap, cp); }
+        setprimgroup(0, "trim", addprim(0, "poly", cap), 1);
+    }
+}
+
+// =====================================================================
+// 2b. frieze ornament, laid out along each continuous RUN of street-facing edges
+//     (so curved bays, made of many short edges, get brackets + panels too):
+//     brackets (paired on Italianates) with drop pendants, an accent panel with a raised
+//     boss between every pair of brackets, and a dentil / modillion row under the bed mould
+// =====================================================================
+if (roof_type != 1) {
+    int start_e = -1;
+    for (int i = 0; i < n; i++) if (keep[i] && !keep[(i - 1 + n) % n]) { start_e = i; break; }
+    if (start_e < 0 && keep[0]) start_e = 0;                      // everything kept: one closed run
+    int visited[]; resize(visited, n);
+    float sp = b_space, bw = chf("bracket_w") * b_size;
+    int paired = c_layout == 1;
+    float f_bot = ph - fz + 0.09, f_top = ph - fz * 0.2;          // frieze face, between architrave and bed mould
+    float bh = (f_top - f_bot) * 0.95;
+    int ital = style == 0 && roof_type == 0;
+
+    for (int run_i = 0; run_i < n; run_i++) {
+        // find the next unvisited run start
+        int s0 = -1;
+        for (int i = 0; i < n; i++) {
+            int kk = (start_e + i) % n;
+            if (keep[kk] && !visited[kk] && (!keep[(kk - 1 + n) % n] || kk == start_e)) { s0 = kk; break; }
+        }
+        if (s0 < 0) break;
+        // collect the run
+        vector rp[], rn[], rd[]; float cum[];
+        int k = s0; float acc = 0;
+        append(rp, pts[k]); append(cum, 0.0);
+        while (keep[k] && !visited[k]) {
+            visited[k] = 1;
+            vector a = pts[k], b = pts[(k + 1) % n];
+            acc += length(set(b.x - a.x, 0, b.z - a.z));
+            append(rp, b); append(cum, acc);
+            append(rn, enrm[k]); append(rd, edir[k]);
+            k = (k + 1) % n;
+        }
+        float L = acc;
+        if (L < 0.4) continue;
+
+        // ----- where the brackets go (bs = positions along the run, big = 1 full bracket / 0 small) -----
+        float bs[]; int big[];
+        if (c_layout == 0 || c_layout == 1) {                          // even / paired: a steady rhythm
+            float spc = c_layout == 1 ? sp * 1.4 : sp;
+            int nb = max(1, int(rint((L - 0.24) / spc)));
+            for (int b = 0; b <= nb; b++) { append(bs, lerp(0.12, L - 0.12, float(b) / nb)); append(big, 1); }
+        }
+        else {
+            // at corners: the run ends + every real corner (bay angles), long stretches split evenly
+            float key[];
+            append(key, 0.12);
+            for (int v = 1; v < len(rd); v++) {
+                float turn = degrees(acos(clamp(dot(rd[v - 1], rd[v]), -1, 1)));
+                if (turn > 20 && cum[v] - key[len(key) - 1] > 0.5 && L - 0.12 - cum[v] > 0.5) append(key, cum[v]);
+            }
+            append(key, L - 0.12);
+            float keys2[];
+            for (int k2 = 0; k2 < len(key) - 1; k2++) {
+                float g = key[k2 + 1] - key[k2];
+                int ns = max(1, int(rint(g / (sp * 2.2))));
+                for (int q = 0; q < ns; q++) append(keys2, key[k2] + g * q / ns);
+            }
+            append(keys2, key[len(key) - 1]);
+            for (int k2 = 0; k2 < len(keys2); k2++) {
+                append(bs, keys2[k2]); append(big, 1);
+                if (c_layout == 3 && k2 < len(keys2) - 1) {               // big + small: little modillions between
+                    float g = keys2[k2 + 1] - keys2[k2];
+                    int nsm = int(g / (sp * 0.45)) - 1;
+                    for (int q = 1; q <= nsm; q++) { append(bs, keys2[k2] + g * q / (nsm + 1)); append(big, 0); }
+                }
+            }
+        }
+        for (int b = 0; b < len(bs); b++) {
+            vector bp, bn, bd;
+            run_eval(bs[b], rp, rn, rd, cum, bp, bn, bd);
+            vector across = -bd;
+            if (paired) {
+                for (int side = -1; side <= 1; side += 2) {
+                    vector o2 = bp + bd * (side * bw * 0.9);
+                    bracket_v(o2 + set(0, f_top, 0) + bn * 0.03, across, bn, bw, bh, proj * 0.85, b_style, "bracket");
+                }
+                add_obox(bp, across, bn, -bw * 1.7, bw * 1.7, f_top - 0.04, f_top, 0.0, proj * 0.92, "bracket");     // cap over the pair
+                add_obox(bp, across, bn, -bw * 0.5, bw * 0.5, f_top - bh - 0.14, f_top - bh, 0.05, 0.16, "bracket"); // drop
+            } else if (big[b]) {
+                float hb = bh * (b_style == 2 ? 0.7 : 0.85);
+                bracket_v(bp + set(0, f_top, 0) + bn * 0.03, across, bn, bw, hb, proj * 0.75, b_style, "bracket");
+                if (b_style != 2)
+                    add_obox(bp, across, bn, -bw * 0.35, bw * 0.35, f_top - hb - 0.12, f_top - hb, 0.04, 0.12, "bracket");   // drop
+            } else {
+                bracket_v(bp + set(0, f_top, 0) + bn * 0.03, across, bn, bw * 0.7, bh * 0.4, proj * 0.45, b_style, "bracket");
+            }
+        }
+        // panels go between the BIG brackets only
+        float pb[];
+        for (int b = 0; b < len(bs); b++) if (big[b]) append(pb, bs[b]);
+        // a panel (accent) with a raised boss between each pair of brackets
+        for (int b = 0; b < len(pb) - 1 && c_layout != 3; b++) {
+            float a0 = pb[b] + bw * (paired ? 2.2 : 1.2) + 0.06, a1 = pb[b + 1] - bw * (paired ? 2.2 : 1.2) - 0.06;
+            if (a1 - a0 < 0.25) continue;
+            sweep_strip(a0, a1, f_bot + 0.1, f_top - 0.1, 0.03, 0.045, "panel_field", rp, rn, rd, cum);
+            sweep_strip(a0 - 0.03, a0, f_bot + 0.07, f_top - 0.07, 0.03, 0.05, "trim", rp, rn, rd, cum);       // panel frame
+            sweep_strip(a1, a1 + 0.03, f_bot + 0.07, f_top - 0.07, 0.03, 0.05, "trim", rp, rn, rd, cum);
+            int one_edge = run_edge(a0, cum) == run_edge(a1, cum);
+            if (one_edge && a1 - a0 > 0.6) {                                   // flat panel: carved running scroll
+                vector bp, bn, bd;
+                run_eval((a0 + a1) * 0.5, rp, rn, rd, cum, bp, bn, bd);
+                float ph_in = (f_top - 0.1) - (f_bot + 0.1);
+                emit_slot(1, bp + bn * 0.045 + set(0, (f_bot + f_top) * 0.5, 0), bd, bn, a1 - a0 - 0.08, ph_in * 0.8);
+            }
+            else if (a1 - a0 > 0.5) {
+                vector bp, bn, bd;
+                run_eval((a0 + a1) * 0.5, rp, rn, rd, cum, bp, bn, bd);
+                float cy = (f_bot + f_top) * 0.5, r = min(0.08, (f_top - f_bot) * 0.22);
+                add_obox(bp, -bd, bn, -r, r, cy - r, cy + r, 0.045, 0.085, "ornament");                         // boss
+            }
+        }
+        // dentils (Italianate) / modillions (others) under the bed mould
+        float dw = ital ? chf("dentil_w") : 0.09, dg = (ital ? chf("dentil_gap") : 0.2) * dent_gap_k;
+        float dh = ital ? 0.08 : 0.06;
+        for (float sd = 0.05 + dw * 0.5; sd < L - 0.05; sd += dw + dg) {
+            vector bp, bn, bd;
+            run_eval(sd, rp, rn, rd, cum, bp, bn, bd);
+            add_obox(bp, -bd, bn, -dw * 0.5, dw * 0.5, f_top - dh, f_top, 0.03, ital ? 0.12 : 0.2, "ornament");
+        }
+    }
+}
+
+float top_y = Ht + ph;
+
+// =====================================================================
+// 3a. FALSE FRONT: small pediment on top of the cornice, centred on the house
+// =====================================================================
+if (roof_type == 2) {
+    // a thin raised pediment panel standing on the crown, in the plane of the parapet face,
+    // with a crown board along each rake (like the raised centre of a Stick false front)
+    float pw = min(W * 0.3, 2.2), cx = W * 0.5, rise = chf("pediment_h");
+    float pl = cx - pw * 0.5, pr = cx + pw * 0.5, z0 = 0.0, z1 = 0.08;
+    if (rise > 0.01) {
+        int tri[] = array(addpoint(0, set(pl, top_y, z1)), addpoint(0, set(cx, top_y + rise, z1)), addpoint(0, set(pr, top_y, z1)));
+        setprimgroup(0, "parapet", addprim(0, "poly", tri), 1);
+        int tri_b[] = array(addpoint(0, set(pr, top_y, z0)), addpoint(0, set(cx, top_y + rise, z0)), addpoint(0, set(pl, top_y, z0)));
+        setprimgroup(0, "parapet", addprim(0, "poly", tri_b), 1);
+        float t = 0.09, zc = z1 + 0.06;
+        add_quad(set(pl - 0.06, top_y, zc), set(cx, top_y + rise + t, zc), set(cx, top_y + rise, zc), set(pl + 0.06, top_y, zc), "trim");
+        add_quad(set(cx, top_y + rise, zc), set(cx, top_y + rise + t, zc), set(pr + 0.06, top_y, zc), set(pr - 0.06, top_y, zc), "trim");
+        add_quad(set(pl - 0.06, top_y, z0), set(cx, top_y + rise + t, z0), set(cx, top_y + rise + t, zc), set(pl - 0.06, top_y, zc), "trim");
+        add_quad(set(cx, top_y + rise + t, z0), set(pr + 0.06, top_y, z0), set(pr + 0.06, top_y, zc), set(cx, top_y + rise + t, zc), "trim");
+    }
+}
+
+// =====================================================================
+// 3b. GABLE (Queen Anne), the way real SF houses resolve it:
+//   1. a full-width ENTABLATURE box projects out to the front of the bays.
+//      The bays simply rise into its soffit, so no curved/angled bay ever meets the triangle.
+//   2. brackets under the soffit, fixed to open wall (corners / between bays)
+//   3. the gable spans the full width, its face standing on the entablature, flush with its front
+// =====================================================================
+if (roof_type == 1) {
+    // how far forward: the deepest bay front on the top floor (or a shallow overhang with no bays)
+    float front = 0.45;
+    float bay_l[], bay_r[];
+    for (int p = 0; p < npoints(1); p++) {
+        string nm = point(1, "name", p);
+        int fl = point(1, "floor", p);
+        if (startswith(nm, "bay") && fl == 2) {
+            vector mn = point(1, "bbmin", p), mx = point(1, "bbmax", p);
+            front = max(front, mx.z + 0.15);
+            append(bay_l, mn.x); append(bay_r, mx.x);
+        }
+    }
+    float e_h   = chf("gable_cornice_h");                 // entablature height
+    float y0    = H;                                      // soffit = top of the top-floor wall
+    float y1    = max(Ht, H) + e_h;                       // top of the entablature (covers the bay caps)
+    float ov    = 0.12;                                   // side overhang
+
+    // frieze box (body colour) + mouldings (trim)
+    add_box(set(-ov, y0, -0.3), set(W + ov, y1 - 0.14, front), "parapet");
+    add_box(set(0, min(Ht, H) - 0.02, -D), set(W, y1, -0.3), "parapet");     // solid block under the gable roof (no floating roof)
+    {
+        float fb = y0 + 0.08, ft = y1 - 0.3;                     // clear of the soffit board and the dentils
+        if (ft - fb > 0.15)
+            emit_slot(1, set(W * 0.5, (fb + ft) * 0.5, front), {1, 0, 0}, {0, 0, 1}, W - 0.3, (ft - fb) * 0.85);
+    }
+    add_box(set(-ov - 0.03, y0 - 0.06, -0.3), set(W + ov + 0.03, y0, front + 0.03), "trim");          // soffit board
+    add_box(set(-ov - 0.04, y1 - 0.14, -0.3), set(W + ov + 0.04, y1 - 0.08, front + 0.06), "trim");   // bed mould
+    add_box(set(-ov - 0.10, y1 - 0.08, -0.3), set(W + ov + 0.10, y1, front + 0.14), "trim");          // crown
+    // dentils along the front and the two returns
+    float dw = chf("dentil_w"), dg = chf("dentil_gap");
+    int nd = int((W + 2 * ov) / (dw + dg));
+    for (int k = 0; k < nd; k++) {
+        float x0 = -ov + k * (dw + dg) + dg * 0.5;
+        add_box(set(x0, y1 - 0.26, front - 0.02), set(x0 + dw, y1 - 0.14, front + 0.05), "ornament");
+    }
+    // brackets under the soffit: they must sit ON the wall and reach out to the front of the
+    // entablature, so only where there is open wall: the house corners (if no bay is there)
+    // and the gap between two bays. Each bracket runs from the wall (z = 0) to the front.
+    float bx[];
+    int corner_l = 1, corner_r = 1;
+    for (int b = 0; b < len(bay_l); b++) {
+        if (bay_l[b] < 0.5) corner_l = 0;
+        if (bay_r[b] > W - 0.5) corner_r = 0;
+    }
+    if (corner_l) append(bx, 0.1);
+    if (corner_r) append(bx, W - 0.1);
+    for (int b = 0; b < len(bay_l); b++)
+        for (int c = 0; c < len(bay_l); c++)
+            if (bay_l[c] > bay_r[b] && bay_l[c] - bay_r[b] > 0.35) {          // open wall between bay b and the next bay c
+                int nearest = 1;
+                for (int e = 0; e < len(bay_l); e++) if (bay_l[e] > bay_r[b] && bay_l[e] < bay_l[c]) nearest = 0;
+                if (nearest) append(bx, (bay_r[b] + bay_l[c]) * 0.5);
+            }
+    float bw = chf("bracket_w") * 1.3;
+    float bd = max(front - 0.04, 0.3), bhh = min(0.9, bd * 0.85);
+    for (int i = 0; i < len(bx); i++)
+        bracket_v(set(bx[i], y0 - 0.06, 0.0), {-1, 0, 0}, {0, 0, 1}, bw * b_size, bhh, bd, b_style, "bracket");
+
+    // ----- the gable(s), face flush with the entablature front -----
+    // gable_mode: 0 auto (two gables when two bay stacks and the house is wide), 1 one, 2 two
+    float zb = -D - 0.05;
+    int mode = chi("gable_mode");
+    int twin = mode == 2 || (mode == 0 && len(bay_l) >= 2 && W > chf("twin_gable_min_w"));
+    if (twin) {
+        float split = len(bay_l) >= 2 ? (min(bay_r[0], bay_r[1]) + max(bay_l[0], bay_l[1])) * 0.5 : W * 0.5;
+        build_gable(-ov, split, y1, front, zb, 0.25, 0.0);
+        build_gable(split, W + ov, y1, front, zb, 0.0, 0.25);
+    } else {
+        build_gable(-ov, W + ov, y1, front, zb, 0.25, 0.25);
+    }
+}

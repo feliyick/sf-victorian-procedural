@@ -1,0 +1,1307 @@
+<?xml version="1.0"?>
+<!-- house_materials.mtlx : procedural facade materials (no textures, no UVs).
+     Every pattern is built from WORLD position, so it works on any generated house.
+     Paint colours come from the displayColor primvar written by the paint SOP. -->
+<materialx version="1.38">
+
+  <!-- ===== shared: world position, noise, palette colour ===== -->
+  <position name="P_0" type="vector3">
+    <input name="space" type="string" value="world" />
+  </position>
+  <separate3 name="sep_1" type="multioutput">
+    <input name="in" type="vector3" nodename="P_0" />
+  </separate3>
+  <multiply name="Pbig_2" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="float" value="0.6" />
+  </multiply>
+  <multiply name="Psmall_3" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="float" value="4.0" />
+  </multiply>
+  <multiply name="Pfine_4" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="float" value="90.0" />
+  </multiply>
+  <fractal3d name="fracbig_5" type="float">
+    <input name="position" type="vector3" nodename="Pbig_2" />
+    <input name="octaves" type="integer" value="4" />
+    <input name="amplitude" type="float" value="1.0" />
+  </fractal3d>
+  <multiply name="mul_6" type="float">
+    <input name="in1" type="float" nodename="fracbig_5" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_7" type="float">
+    <input name="in1" type="float" nodename="mul_6" />
+    <input name="in2" type="float" value="0.5" />
+  </add>
+  <clamp name="clamp_8" type="float">
+    <input name="in" type="float" nodename="add_7" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.0" />
+  </clamp>
+  <fractal3d name="fracsmall_9" type="float">
+    <input name="position" type="vector3" nodename="Psmall_3" />
+    <input name="octaves" type="integer" value="4" />
+    <input name="amplitude" type="float" value="1.0" />
+  </fractal3d>
+  <multiply name="mul_10" type="float">
+    <input name="in1" type="float" nodename="fracsmall_9" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_11" type="float">
+    <input name="in1" type="float" nodename="mul_10" />
+    <input name="in2" type="float" value="0.5" />
+  </add>
+  <clamp name="clamp_12" type="float">
+    <input name="in" type="float" nodename="add_11" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.0" />
+  </clamp>
+  <geompropvalue name="paintcolour_13" type="color3">
+    <input name="geomprop" type="string" value="displayColor" />
+    <input name="default" type="color3" value="0.5, 0.5, 0.5" />
+  </geompropvalue>
+  <smoothstep name="smooth_14" type="float">
+    <input name="in" type="float" nodename="sep_1" output="outy" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.2" />
+  </smoothstep>
+  <subtract name="sub_15" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_14" />
+  </subtract>
+
+  <!-- ===== siding: painted clapboards, grime near the street, optional brick base ===== -->
+  <divide name="div_16" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.15" />
+  </divide>
+  <floor name="floor_17" type="float">
+    <input name="in" type="float" nodename="div_16" />
+  </floor>
+  <subtract name="sub_18" type="float">
+    <input name="in1" type="float" nodename="div_16" />
+    <input name="in2" type="float" nodename="floor_17" />
+  </subtract>
+  <smoothstep name="smooth_19" type="float">
+    <input name="in" type="float" nodename="sub_18" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.12" />
+  </smoothstep>
+  <mix name="mix_20" type="float">
+    <input name="fg" type="float" value="1.0" />
+    <input name="bg" type="float" value="0.62" />
+    <input name="mix" type="float" nodename="smooth_19" />
+  </mix>
+  <multiply name="mul_21" type="float">
+    <input name="in1" type="float" nodename="sub_18" />
+    <input name="in2" type="float" value="0.06" />
+  </multiply>
+  <add name="add_22" type="float">
+    <input name="in1" type="float" nodename="mul_21" />
+    <input name="in2" type="float" value="0.94" />
+  </add>
+  <multiply name="mul_23" type="float">
+    <input name="in1" type="float" nodename="mix_20" />
+    <input name="in2" type="float" nodename="add_22" />
+  </multiply>
+  <multiply name="cmul_24" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="mul_23" />
+  </multiply>
+  <multiply name="mul_25" type="float">
+    <input name="in1" type="float" nodename="sub_15" />
+    <input name="in2" type="float" nodename="clamp_8" />
+  </multiply>
+  <multiply name="cmul_26" type="color3">
+    <input name="in1" type="color3" nodename="cmul_24" />
+    <input name="in2" type="float" value="0.55" />
+  </multiply>
+  <multiply name="mul_27" type="float">
+    <input name="in1" type="float" nodename="mul_25" />
+    <input name="in2" type="float" value="0.6" />
+  </multiply>
+  <mix name="mixc_28" type="color3">
+    <input name="fg" type="color3" nodename="cmul_26" />
+    <input name="bg" type="color3" nodename="cmul_24" />
+    <input name="mix" type="float" nodename="mul_27" />
+  </mix>
+  <add name="add_29" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outx" />
+    <input name="in2" type="float" nodename="sep_1" output="outz" />
+  </add>
+  <divide name="div_30" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.0762" />
+  </divide>
+  <floor name="floor_31" type="float">
+    <input name="in" type="float" nodename="div_30" />
+  </floor>
+  <divide name="div_32" type="float">
+    <input name="in1" type="float" nodename="add_29" />
+    <input name="in2" type="float" value="0.2032" />
+  </divide>
+  <modulo name="mod_33" type="float">
+    <input name="in1" type="float" nodename="floor_31" />
+    <input name="in2" type="float" value="2.0" />
+  </modulo>
+  <multiply name="mul_34" type="float">
+    <input name="in1" type="float" nodename="mod_33" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_35" type="float">
+    <input name="in1" type="float" nodename="div_32" />
+    <input name="in2" type="float" nodename="mul_34" />
+  </add>
+  <floor name="floor_36" type="float">
+    <input name="in" type="float" nodename="add_35" />
+  </floor>
+  <subtract name="sub_37" type="float">
+    <input name="in1" type="float" nodename="add_35" />
+    <input name="in2" type="float" nodename="floor_36" />
+  </subtract>
+  <divide name="div_38" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.0762" />
+  </divide>
+  <subtract name="sub_39" type="float">
+    <input name="in1" type="float" nodename="div_38" />
+    <input name="in2" type="float" nodename="floor_31" />
+  </subtract>
+  <smoothstep name="smooth_40" type="float">
+    <input name="in" type="float" nodename="sub_37" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.05" />
+  </smoothstep>
+  <smoothstep name="smooth_41" type="float">
+    <input name="in" type="float" nodename="sub_37" />
+    <input name="low" type="float" value="0.95" />
+    <input name="high" type="float" value="1.0" />
+  </smoothstep>
+  <subtract name="sub_42" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_41" />
+  </subtract>
+  <multiply name="mul_43" type="float">
+    <input name="in1" type="float" nodename="smooth_40" />
+    <input name="in2" type="float" nodename="sub_42" />
+  </multiply>
+  <smoothstep name="smooth_44" type="float">
+    <input name="in" type="float" nodename="sub_39" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.09" />
+  </smoothstep>
+  <smoothstep name="smooth_45" type="float">
+    <input name="in" type="float" nodename="sub_39" />
+    <input name="low" type="float" value="0.91" />
+    <input name="high" type="float" value="1.0" />
+  </smoothstep>
+  <subtract name="sub_46" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_45" />
+  </subtract>
+  <multiply name="mul_47" type="float">
+    <input name="in1" type="float" nodename="smooth_44" />
+    <input name="in2" type="float" nodename="sub_46" />
+  </multiply>
+  <multiply name="mul_48" type="float">
+    <input name="in1" type="float" nodename="mul_43" />
+    <input name="in2" type="float" nodename="mul_47" />
+  </multiply>
+  <floor name="floor_49" type="float">
+    <input name="in" type="float" nodename="add_35" />
+  </floor>
+  <combine3 name="brickid_50" type="vector3">
+    <input name="in1" type="float" nodename="floor_49" />
+    <input name="in2" type="float" nodename="floor_31" />
+    <input name="in3" type="float" value="0.0" />
+  </combine3>
+  <cellnoise3d name="brickcell_51" type="float">
+    <input name="position" type="vector3" nodename="brickid_50" />
+  </cellnoise3d>
+  <mix name="mixc_52" type="color3">
+    <input name="fg" type="color3" value="0.56, 0.25, 0.16" />
+    <input name="bg" type="color3" value="0.32, 0.12, 0.08" />
+    <input name="mix" type="float" nodename="brickcell_51" />
+  </mix>
+  <multiply name="mul_53" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_54" type="float">
+    <input name="in1" type="float" nodename="mul_53" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="cmul_55" type="color3">
+    <input name="in1" type="color3" nodename="mixc_52" />
+    <input name="in2" type="float" nodename="add_54" />
+  </multiply>
+  <mix name="mixc_56" type="color3">
+    <input name="fg" type="color3" nodename="cmul_55" />
+    <input name="bg" type="color3" value="0.62, 0.6, 0.56" />
+    <input name="mix" type="float" nodename="mul_48" />
+  </mix>
+  <geompropvalue name="basebrick_57" type="float">
+    <input name="geomprop" type="string" value="base_brick" />
+    <input name="default" type="float" value="0.0" />
+  </geompropvalue>
+  <geompropvalue name="basetop_58" type="float">
+    <input name="geomprop" type="string" value="base_top" />
+    <input name="default" type="float" value="0.0" />
+  </geompropvalue>
+  <ifgreater name="ifgt_59" type="float">
+    <input name="value1" type="float" nodename="basetop_58" />
+    <input name="value2" type="float" nodename="sep_1" output="outy" />
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" value="0.0" />
+  </ifgreater>
+  <multiply name="mul_60" type="float">
+    <input name="in1" type="float" nodename="basebrick_57" />
+    <input name="in2" type="float" nodename="ifgt_59" />
+  </multiply>
+  <mix name="mixc_61" type="color3">
+    <input name="fg" type="color3" nodename="mixc_56" />
+    <input name="bg" type="color3" nodename="mixc_28" />
+    <input name="mix" type="float" nodename="mul_60" />
+  </mix>
+  <multiply name="mul_62" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.15" />
+  </multiply>
+  <add name="add_63" type="float">
+    <input name="in1" type="float" nodename="mul_62" />
+    <input name="in2" type="float" value="0.5" />
+  </add>
+  <mix name="mix_64" type="float">
+    <input name="fg" type="float" value="0.85" />
+    <input name="bg" type="float" nodename="add_63" />
+    <input name="mix" type="float" nodename="mul_60" />
+  </mix>
+  <standard_surface name="siding_shader_65" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="mixc_61" />
+    <input name="specular" type="float" value="0.35" />
+    <input name="specular_roughness" type="float" nodename="mix_64" />
+  </standard_surface>
+  <surfacematerial name="siding" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="siding_shader_65" />
+  </surfacematerial>
+
+  <!-- ===== trim, sash, door: painted wood ===== -->
+  <multiply name="cmul_66" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" value="0.7" />
+  </multiply>
+  <multiply name="mul_67" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.04" />
+  </multiply>
+  <add name="add_68" type="float">
+    <input name="in1" type="float" nodename="mul_67" />
+    <input name="in2" type="float" value="0.96" />
+  </add>
+  <multiply name="cmul_69" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="add_68" />
+  </multiply>
+  <multiply name="mul_70" type="float">
+    <input name="in1" type="float" nodename="mul_25" />
+    <input name="in2" type="float" value="0.4" />
+  </multiply>
+  <mix name="mixc_71" type="color3">
+    <input name="fg" type="color3" nodename="cmul_66" />
+    <input name="bg" type="color3" nodename="cmul_69" />
+    <input name="mix" type="float" nodename="mul_70" />
+  </mix>
+  <multiply name="mul_72" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.1" />
+  </multiply>
+  <add name="add_73" type="float">
+    <input name="in1" type="float" nodename="mul_72" />
+    <input name="in2" type="float" value="0.3" />
+  </add>
+  <standard_surface name="trim_shader_74" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="mixc_71" />
+    <input name="specular" type="float" value="0.5" />
+    <input name="specular_roughness" type="float" nodename="add_73" />
+  </standard_surface>
+  <surfacematerial name="trim" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="trim_shader_74" />
+  </surfacematerial>
+  <standard_surface name="sash_shader_75" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.5" />
+    <input name="specular_roughness" type="float" value="0.25" />
+  </standard_surface>
+  <surfacematerial name="sash" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="sash_shader_75" />
+  </surfacematerial>
+  <standard_surface name="door_shader_76" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.5" />
+    <input name="specular_roughness" type="float" value="0.3" />
+    <input name="coat" type="float" value="1.0" />
+    <input name="coat_roughness" type="float" value="0.08" />
+  </standard_surface>
+  <surfacematerial name="door" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="door_shader_76" />
+  </surfacematerial>
+
+  <!-- ===== glass: clear and thin, so the room / curtains behind it show through, with real reflections ===== -->
+  <standard_surface name="glass_shader_77" type="surfaceshader">
+    <input name="base" type="float" value="0.0" />
+    <input name="specular" type="float" value="1.0" />
+    <input name="specular_IOR" type="float" value="1.52" />
+    <input name="specular_roughness" type="float" value="0.0" />
+    <input name="transmission" type="float" value="1.0" />
+    <input name="transmission_color" type="color3" value="0.93, 0.96, 0.95" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="glass" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="glass_shader_77" />
+  </surfacematerial>
+
+  <!-- ===== glass_dark: garage + door glass (nothing modelled behind it): dark and reflective ===== -->
+  <standard_surface name="glass_dark_shader_78" type="surfaceshader">
+    <input name="base_color" type="color3" value="0.008, 0.008, 0.009" />
+    <input name="base" type="float" value="1.0" />
+    <input name="specular" type="float" value="1.0" />
+    <input name="specular_IOR" type="float" value="1.52" />
+    <input name="specular_roughness" type="float" value="0.0" />
+    <input name="coat" type="float" value="1.0" />
+    <input name="coat_IOR" type="float" value="1.5" />
+  </standard_surface>
+  <surfacematerial name="glass_dark" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="glass_dark_shader_78" />
+  </surfacematerial>
+
+  <!-- ===== curtains, blinds, rooms, plants (colours come from the window_dressing node) ===== -->
+  <standard_surface name="curtain_shader_79" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.1" />
+    <input name="specular_roughness" type="float" value="0.8" />
+    <input name="sheen" type="float" value="0.6" />
+    <input name="sheen_color" type="color3" value="1.0, 1.0, 1.0" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="curtain" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="curtain_shader_79" />
+  </surfacematerial>
+  <standard_surface name="curtain_sheer_shader_80" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.05" />
+    <input name="specular_roughness" type="float" value="0.9" />
+    <input name="sheen" type="float" value="0.4" />
+    <input name="opacity" type="color3" value="0.55, 0.55, 0.55" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="curtain_sheer" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="curtain_sheer_shader_80" />
+  </surfacematerial>
+  <geompropvalue name="roomlit_81" type="float">
+    <input name="geomprop" type="string" value="lit" />
+    <input name="default" type="float" value="1.0" />
+  </geompropvalue>
+  <geompropvalue name="glowt_82" type="float">
+    <input name="geomprop" type="string" value="glow_t" />
+    <input name="default" type="float" value="0.5" />
+  </geompropvalue>
+  <multiply name="mul_83" type="float">
+    <input name="in1" type="float" nodename="glowt_82" />
+    <input name="in2" type="float" nodename="glowt_82" />
+  </multiply>
+  <convert name="cdvec_84" type="vector3">
+    <input name="in" type="color3" nodename="paintcolour_13" />
+  </convert>
+  <dotproduct name="cdlum_85" type="float">
+    <input name="in1" type="vector3" nodename="cdvec_84" />
+    <input name="in2" type="vector3" value="0.3, 0.55, 0.15" />
+  </dotproduct>
+  <mix name="mixc_86" type="color3">
+    <input name="fg" type="color3" value="1.0, 0.93, 0.82" />
+    <input name="bg" type="color3" value="1.0, 0.58, 0.26" />
+    <input name="mix" type="float" nodename="mul_83" />
+  </mix>
+  <multiply name="mul_87" type="float">
+    <input name="in1" type="float" nodename="roomlit_81" />
+    <input name="in2" type="float" value="1.4" />
+  </multiply>
+  <multiply name="mul_88" type="float">
+    <input name="in1" type="float" nodename="cdlum_85" />
+    <input name="in2" type="float" value="14.0" />
+  </multiply>
+  <clamp name="clamp_89" type="float">
+    <input name="in" type="float" nodename="mul_88" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.0" />
+  </clamp>
+  <multiply name="mul_90" type="float">
+    <input name="in1" type="float" nodename="mul_87" />
+    <input name="in2" type="float" nodename="clamp_89" />
+  </multiply>
+  <multiply name="cmul_91" type="color3">
+    <input name="in1" type="color3" nodename="mixc_86" />
+    <input name="in2" type="float" nodename="mul_90" />
+  </multiply>
+  <standard_surface name="room_shader_92" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.05" />
+    <input name="specular_roughness" type="float" value="1.0" />
+    <input name="emission" type="float" value="1.0" />
+    <input name="emission_color" type="color3" nodename="cmul_91" />
+  </standard_surface>
+  <surfacematerial name="room" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="room_shader_92" />
+  </surfacematerial>
+  <standard_surface name="plant_shader_93" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.3" />
+    <input name="specular_roughness" type="float" value="0.5" />
+    <input name="subsurface" type="float" value="0.2" />
+    <input name="subsurface_color" type="color3" nodename="paintcolour_13" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="plant" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="plant_shader_93" />
+  </surfacematerial>
+
+  <!-- ===== garage door: clean painted metal, only a faint darkening at the street ===== -->
+  <multiply name="cmul_94" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" value="0.8" />
+  </multiply>
+  <smoothstep name="smooth_95" type="float">
+    <input name="in" type="float" nodename="sep_1" output="outy" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.5" />
+  </smoothstep>
+  <subtract name="sub_96" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_95" />
+  </subtract>
+  <multiply name="mul_97" type="float">
+    <input name="in1" type="float" nodename="sub_96" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <mix name="mixc_98" type="color3">
+    <input name="fg" type="color3" nodename="cmul_94" />
+    <input name="bg" type="color3" nodename="paintcolour_13" />
+    <input name="mix" type="float" nodename="mul_97" />
+  </mix>
+  <standard_surface name="garage_shader_99" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="mixc_98" />
+    <input name="specular" type="float" value="0.6" />
+    <input name="specular_roughness" type="float" value="0.35" />
+  </standard_surface>
+  <surfacematerial name="garage" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="garage_shader_99" />
+  </surfacematerial>
+
+  <!-- ===== iron: dark painted metal with rust spots ===== -->
+  <multiply name="mul_100" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_101" type="float">
+    <input name="in1" type="float" nodename="mul_100" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="cmul_102" type="color3">
+    <input name="in1" type="color3" value="0.42, 0.28, 0.17" />
+    <input name="in2" type="float" nodename="add_101" />
+  </multiply>
+  <smoothstep name="smooth_103" type="float">
+    <input name="in" type="float" nodename="clamp_12" />
+    <input name="low" type="float" value="0.62" />
+    <input name="high" type="float" value="0.8" />
+  </smoothstep>
+  <multiply name="mul_104" type="float">
+    <input name="in1" type="float" nodename="smooth_103" />
+    <input name="in2" type="float" value="0.6" />
+  </multiply>
+  <mix name="mixc_105" type="color3">
+    <input name="fg" type="color3" nodename="cmul_102" />
+    <input name="bg" type="color3" value="0.035, 0.035, 0.04" />
+    <input name="mix" type="float" nodename="mul_104" />
+  </mix>
+  <mix name="mix_106" type="float">
+    <input name="fg" type="float" value="0.0" />
+    <input name="bg" type="float" value="0.6" />
+    <input name="mix" type="float" nodename="mul_104" />
+  </mix>
+  <mix name="mix_107" type="float">
+    <input name="fg" type="float" value="0.9" />
+    <input name="bg" type="float" value="0.4" />
+    <input name="mix" type="float" nodename="mul_104" />
+  </mix>
+  <standard_surface name="iron_shader_108" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="mixc_105" />
+    <input name="metalness" type="float" nodename="mix_106" />
+    <input name="specular_roughness" type="float" nodename="mix_107" />
+  </standard_surface>
+  <surfacematerial name="iron" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="iron_shader_108" />
+  </surfacematerial>
+
+  <!-- ===== granite steps: speckled grey ===== -->
+  <cellnoise3d name="speck_109" type="float">
+    <input name="position" type="vector3" nodename="Pfine_4" />
+  </cellnoise3d>
+  <mix name="mixc_110" type="color3">
+    <input name="fg" type="color3" value="0.72, 0.71, 0.68" />
+    <input name="bg" type="color3" value="0.44, 0.43, 0.42" />
+    <input name="mix" type="float" nodename="speck_109" />
+  </mix>
+  <ifgreater name="ifgt_111" type="float">
+    <input name="value1" type="float" nodename="speck_109" />
+    <input name="value2" type="float" value="0.93" />
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" value="0.0" />
+  </ifgreater>
+  <mix name="mixc_112" type="color3">
+    <input name="fg" type="color3" value="0.12, 0.12, 0.12" />
+    <input name="bg" type="color3" nodename="mixc_110" />
+    <input name="mix" type="float" nodename="ifgt_111" />
+  </mix>
+  <multiply name="mul_113" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.2" />
+  </multiply>
+  <add name="add_114" type="float">
+    <input name="in1" type="float" nodename="mul_113" />
+    <input name="in2" type="float" value="0.9" />
+  </add>
+  <multiply name="cmul_115" type="color3">
+    <input name="in1" type="color3" nodename="mixc_112" />
+    <input name="in2" type="float" nodename="add_114" />
+  </multiply>
+  <standard_surface name="granite_shader_116" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_115" />
+    <input name="specular" type="float" value="0.5" />
+    <input name="specular_roughness" type="float" value="0.45" />
+  </standard_surface>
+  <surfacematerial name="granite" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="granite_shader_116" />
+  </surfacematerial>
+
+  <!-- ===== marble steps: white with grey veins (Italianate entries) ===== -->
+  <multiply name="mul_117" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_118" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outx" />
+    <input name="in2" type="float" nodename="mul_117" />
+  </add>
+  <add name="add_119" type="float">
+    <input name="in1" type="float" nodename="add_118" />
+    <input name="in2" type="float" nodename="sep_1" output="outz" />
+  </add>
+  <multiply name="mul_120" type="float">
+    <input name="in1" type="float" nodename="add_119" />
+    <input name="in2" type="float" value="4.0" />
+  </multiply>
+  <multiply name="Pvein_121" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="float" value="1.5" />
+  </multiply>
+  <fractal3d name="veinwarp_122" type="float">
+    <input name="position" type="vector3" nodename="Pvein_121" />
+    <input name="octaves" type="integer" value="5" />
+  </fractal3d>
+  <multiply name="mul_123" type="float">
+    <input name="in1" type="float" nodename="veinwarp_122" />
+    <input name="in2" type="float" value="6.0" />
+  </multiply>
+  <add name="add_124" type="float">
+    <input name="in1" type="float" nodename="mul_120" />
+    <input name="in2" type="float" nodename="mul_123" />
+  </add>
+  <sin name="sin_125" type="float">
+    <input name="in" type="float" nodename="add_124" />
+  </sin>
+  <absval name="abs_126" type="float">
+    <input name="in" type="float" nodename="sin_125" />
+  </absval>
+  <smoothstep name="smooth_127" type="float">
+    <input name="in" type="float" nodename="abs_126" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.15" />
+  </smoothstep>
+  <subtract name="sub_128" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_127" />
+  </subtract>
+  <multiply name="mul_129" type="float">
+    <input name="in1" type="float" nodename="sub_128" />
+    <input name="in2" type="float" value="0.8" />
+  </multiply>
+  <mix name="mixc_130" type="color3">
+    <input name="fg" type="color3" value="0.45, 0.45, 0.47" />
+    <input name="bg" type="color3" value="0.93, 0.92, 0.89" />
+    <input name="mix" type="float" nodename="mul_129" />
+  </mix>
+  <standard_surface name="marble_shader_131" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="mixc_130" />
+    <input name="specular" type="float" value="0.6" />
+    <input name="specular_roughness" type="float" value="0.15" />
+  </standard_surface>
+  <surfacematerial name="marble" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="marble_shader_131" />
+  </surfacematerial>
+
+  <!-- ===== shingles: fish-scale shingles in the gable (Queen Anne) ===== -->
+  <add name="add_132" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outx" />
+    <input name="in2" type="float" nodename="sep_1" output="outz" />
+  </add>
+  <divide name="div_133" type="float">
+    <input name="in1" type="float" nodename="add_132" />
+    <input name="in2" type="float" value="0.16" />
+  </divide>
+  <divide name="div_134" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.12" />
+  </divide>
+  <floor name="floor_135" type="float">
+    <input name="in" type="float" nodename="div_134" />
+  </floor>
+  <modulo name="mod_136" type="float">
+    <input name="in1" type="float" nodename="floor_135" />
+    <input name="in2" type="float" value="2.0" />
+  </modulo>
+  <multiply name="mul_137" type="float">
+    <input name="in1" type="float" nodename="mod_136" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_138" type="float">
+    <input name="in1" type="float" nodename="div_133" />
+    <input name="in2" type="float" nodename="mul_137" />
+  </add>
+  <floor name="floor_139" type="float">
+    <input name="in" type="float" nodename="add_138" />
+  </floor>
+  <subtract name="sub_140" type="float">
+    <input name="in1" type="float" nodename="add_138" />
+    <input name="in2" type="float" nodename="floor_139" />
+  </subtract>
+  <subtract name="sub_141" type="float">
+    <input name="in1" type="float" nodename="sub_140" />
+    <input name="in2" type="float" value="0.5" />
+  </subtract>
+  <divide name="div_142" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.12" />
+  </divide>
+  <subtract name="sub_143" type="float">
+    <input name="in1" type="float" nodename="div_142" />
+    <input name="in2" type="float" nodename="floor_135" />
+  </subtract>
+  <subtract name="sub_144" type="float">
+    <input name="in1" type="float" nodename="sub_143" />
+    <input name="in2" type="float" value="0.5" />
+  </subtract>
+  <multiply name="mul_145" type="float">
+    <input name="in1" type="float" nodename="sub_141" />
+    <input name="in2" type="float" nodename="sub_141" />
+  </multiply>
+  <multiply name="mul_146" type="float">
+    <input name="in1" type="float" nodename="sub_144" />
+    <input name="in2" type="float" nodename="sub_144" />
+  </multiply>
+  <add name="add_147" type="float">
+    <input name="in1" type="float" nodename="mul_145" />
+    <input name="in2" type="float" nodename="mul_146" />
+  </add>
+  <smoothstep name="smooth_148" type="float">
+    <input name="in" type="float" nodename="add_147" />
+    <input name="low" type="float" value="0.16" />
+    <input name="high" type="float" value="0.25" />
+  </smoothstep>
+  <ifgreater name="ifgt_149" type="float">
+    <input name="value1" type="float" value="0.5" />
+    <input name="value2" type="float" nodename="sub_143" />
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" value="0.0" />
+  </ifgreater>
+  <multiply name="mul_150" type="float">
+    <input name="in1" type="float" nodename="smooth_148" />
+    <input name="in2" type="float" nodename="ifgt_149" />
+  </multiply>
+  <floor name="floor_151" type="float">
+    <input name="in" type="float" nodename="add_138" />
+  </floor>
+  <combine3 name="shingleid_152" type="vector3">
+    <input name="in1" type="float" nodename="floor_151" />
+    <input name="in2" type="float" nodename="floor_135" />
+    <input name="in3" type="float" value="3.0" />
+  </combine3>
+  <cellnoise3d name="shinglecell_153" type="float">
+    <input name="position" type="vector3" nodename="shingleid_152" />
+  </cellnoise3d>
+  <multiply name="mul_154" type="float">
+    <input name="in1" type="float" nodename="mul_150" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <subtract name="sub_155" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="mul_154" />
+  </subtract>
+  <multiply name="mul_156" type="float">
+    <input name="in1" type="float" nodename="shinglecell_153" />
+    <input name="in2" type="float" value="0.12" />
+  </multiply>
+  <add name="add_157" type="float">
+    <input name="in1" type="float" nodename="mul_156" />
+    <input name="in2" type="float" value="0.9" />
+  </add>
+  <multiply name="mul_158" type="float">
+    <input name="in1" type="float" nodename="sub_155" />
+    <input name="in2" type="float" nodename="add_157" />
+  </multiply>
+  <multiply name="cmul_159" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="mul_158" />
+  </multiply>
+  <standard_surface name="shingle_shader_160" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_159" />
+    <input name="specular" type="float" value="0.35" />
+    <input name="specular_roughness" type="float" value="0.6" />
+  </standard_surface>
+  <surfacematerial name="shingle" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="shingle_shader_160" />
+  </surfacematerial>
+
+  <!-- ===== roof: weathered tar ===== -->
+  <normal name="Nworld_161" type="vector3">
+    <input name="space" type="string" value="world" />
+  </normal>
+  <separate3 name="sepN_162" type="multioutput">
+    <input name="in" type="vector3" nodename="Nworld_161" />
+  </separate3>
+  <absval name="absny_163" type="float">
+    <input name="in" type="float" nodename="sepN_162" output="outy" />
+  </absval>
+  <smoothstep name="smooth_164" type="float">
+    <input name="in" type="float" nodename="absny_163" />
+    <input name="low" type="float" value="0.9" />
+    <input name="high" type="float" value="0.98" />
+  </smoothstep>
+  <subtract name="sub_165" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_164" />
+  </subtract>
+  <divide name="div_166" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.18" />
+  </divide>
+  <floor name="floor_167" type="float">
+    <input name="in" type="float" nodename="div_166" />
+  </floor>
+  <divide name="div_168" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outy" />
+    <input name="in2" type="float" value="0.18" />
+  </divide>
+  <subtract name="sub_169" type="float">
+    <input name="in1" type="float" nodename="div_168" />
+    <input name="in2" type="float" nodename="floor_167" />
+  </subtract>
+  <smoothstep name="smooth_170" type="float">
+    <input name="in" type="float" nodename="sub_169" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.1" />
+  </smoothstep>
+  <add name="add_171" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outx" />
+    <input name="in2" type="float" nodename="sep_1" output="outz" />
+  </add>
+  <divide name="div_172" type="float">
+    <input name="in1" type="float" nodename="add_171" />
+    <input name="in2" type="float" value="0.32" />
+  </divide>
+  <modulo name="mod_173" type="float">
+    <input name="in1" type="float" nodename="floor_167" />
+    <input name="in2" type="float" value="2.0" />
+  </modulo>
+  <multiply name="mul_174" type="float">
+    <input name="in1" type="float" nodename="mod_173" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_175" type="float">
+    <input name="in1" type="float" nodename="div_172" />
+    <input name="in2" type="float" nodename="mul_174" />
+  </add>
+  <floor name="floor_176" type="float">
+    <input name="in" type="float" nodename="add_175" />
+  </floor>
+  <subtract name="sub_177" type="float">
+    <input name="in1" type="float" nodename="add_175" />
+    <input name="in2" type="float" nodename="floor_176" />
+  </subtract>
+  <smoothstep name="smooth_178" type="float">
+    <input name="in" type="float" nodename="sub_177" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.05" />
+  </smoothstep>
+  <smoothstep name="smooth_179" type="float">
+    <input name="in" type="float" nodename="sub_177" />
+    <input name="low" type="float" value="0.95" />
+    <input name="high" type="float" value="1.0" />
+  </smoothstep>
+  <subtract name="sub_180" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_179" />
+  </subtract>
+  <multiply name="mul_181" type="float">
+    <input name="in1" type="float" nodename="smooth_178" />
+    <input name="in2" type="float" nodename="sub_180" />
+  </multiply>
+  <floor name="floor_182" type="float">
+    <input name="in" type="float" nodename="add_175" />
+  </floor>
+  <combine3 name="roofid_183" type="vector3">
+    <input name="in1" type="float" nodename="floor_182" />
+    <input name="in2" type="float" nodename="floor_167" />
+    <input name="in3" type="float" value="7.0" />
+  </combine3>
+  <cellnoise3d name="roofcell_184" type="float">
+    <input name="position" type="vector3" nodename="roofid_183" />
+  </cellnoise3d>
+  <mix name="mix_185" type="float">
+    <input name="fg" type="float" value="1.0" />
+    <input name="bg" type="float" value="0.6" />
+    <input name="mix" type="float" nodename="smooth_170" />
+  </mix>
+  <mix name="mix_186" type="float">
+    <input name="fg" type="float" value="1.0" />
+    <input name="bg" type="float" value="0.75" />
+    <input name="mix" type="float" nodename="mul_181" />
+  </mix>
+  <multiply name="mul_187" type="float">
+    <input name="in1" type="float" nodename="mix_185" />
+    <input name="in2" type="float" nodename="mix_186" />
+  </multiply>
+  <multiply name="mul_188" type="float">
+    <input name="in1" type="float" nodename="roofcell_184" />
+    <input name="in2" type="float" value="0.25" />
+  </multiply>
+  <add name="add_189" type="float">
+    <input name="in1" type="float" nodename="mul_188" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="mul_190" type="float">
+    <input name="in1" type="float" nodename="mul_187" />
+    <input name="in2" type="float" nodename="add_189" />
+  </multiply>
+  <mix name="mix_191" type="float">
+    <input name="fg" type="float" nodename="mul_190" />
+    <input name="bg" type="float" value="1.0" />
+    <input name="mix" type="float" nodename="sub_165" />
+  </mix>
+  <multiply name="cmul_192" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="mix_191" />
+  </multiply>
+  <multiply name="mul_193" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_194" type="float">
+    <input name="in1" type="float" nodename="mul_193" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="cmul_195" type="color3">
+    <input name="in1" type="color3" nodename="cmul_192" />
+    <input name="in2" type="float" nodename="add_194" />
+  </multiply>
+  <standard_surface name="roof_shader_196" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_195" />
+    <input name="specular" type="float" value="0.25" />
+    <input name="specular_roughness" type="float" value="0.85" />
+  </standard_surface>
+  <surfacematerial name="roof" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="roof_shader_196" />
+  </surfacematerial>
+
+  <!-- ===== sidewalk: concrete slabs with joints and stains ===== -->
+  <divide name="div_197" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outx" />
+    <input name="in2" type="float" value="1.5" />
+  </divide>
+  <floor name="floor_198" type="float">
+    <input name="in" type="float" nodename="div_197" />
+  </floor>
+  <subtract name="sub_199" type="float">
+    <input name="in1" type="float" nodename="div_197" />
+    <input name="in2" type="float" nodename="floor_198" />
+  </subtract>
+  <divide name="div_200" type="float">
+    <input name="in1" type="float" nodename="sep_1" output="outz" />
+    <input name="in2" type="float" value="1.5" />
+  </divide>
+  <floor name="floor_201" type="float">
+    <input name="in" type="float" nodename="div_200" />
+  </floor>
+  <subtract name="sub_202" type="float">
+    <input name="in1" type="float" nodename="div_200" />
+    <input name="in2" type="float" nodename="floor_201" />
+  </subtract>
+  <smoothstep name="smooth_203" type="float">
+    <input name="in" type="float" nodename="sub_199" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.008" />
+  </smoothstep>
+  <smoothstep name="smooth_204" type="float">
+    <input name="in" type="float" nodename="sub_199" />
+    <input name="low" type="float" value="0.992" />
+    <input name="high" type="float" value="1.0" />
+  </smoothstep>
+  <subtract name="sub_205" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_204" />
+  </subtract>
+  <multiply name="mul_206" type="float">
+    <input name="in1" type="float" nodename="smooth_203" />
+    <input name="in2" type="float" nodename="sub_205" />
+  </multiply>
+  <smoothstep name="smooth_207" type="float">
+    <input name="in" type="float" nodename="sub_202" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="0.008" />
+  </smoothstep>
+  <smoothstep name="smooth_208" type="float">
+    <input name="in" type="float" nodename="sub_202" />
+    <input name="low" type="float" value="0.992" />
+    <input name="high" type="float" value="1.0" />
+  </smoothstep>
+  <subtract name="sub_209" type="float">
+    <input name="in1" type="float" value="1.0" />
+    <input name="in2" type="float" nodename="smooth_208" />
+  </subtract>
+  <multiply name="mul_210" type="float">
+    <input name="in1" type="float" nodename="smooth_207" />
+    <input name="in2" type="float" nodename="sub_209" />
+  </multiply>
+  <multiply name="mul_211" type="float">
+    <input name="in1" type="float" nodename="mul_206" />
+    <input name="in2" type="float" nodename="mul_210" />
+  </multiply>
+  <mix name="mix_212" type="float">
+    <input name="fg" type="float" value="1.0" />
+    <input name="bg" type="float" value="0.55" />
+    <input name="mix" type="float" nodename="mul_211" />
+  </mix>
+  <multiply name="mul_213" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_214" type="float">
+    <input name="in1" type="float" nodename="mul_213" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="mul_215" type="float">
+    <input name="in1" type="float" nodename="mix_212" />
+    <input name="in2" type="float" nodename="add_214" />
+  </multiply>
+  <multiply name="cmul_216" type="color3">
+    <input name="in1" type="color3" value="0.56, 0.55, 0.53" />
+    <input name="in2" type="float" nodename="mul_215" />
+  </multiply>
+  <standard_surface name="concrete_shader_217" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_216" />
+    <input name="specular" type="float" value="0.3" />
+    <input name="specular_roughness" type="float" value="0.8" />
+  </standard_surface>
+  <surfacematerial name="concrete" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="concrete_shader_217" />
+  </surfacematerial>
+
+  <!-- ===== asphalt: aggregate speckle over the patch colour, darker oily centre of each lane ===== -->
+  <cellnoise3d name="aggregate_218" type="float">
+    <input name="position" type="vector3" nodename="Pfine_4" />
+  </cellnoise3d>
+  <multiply name="mul_219" type="float">
+    <input name="in1" type="float" nodename="aggregate_218" />
+    <input name="in2" type="float" value="0.35" />
+  </multiply>
+  <add name="add_220" type="float">
+    <input name="in1" type="float" nodename="mul_219" />
+    <input name="in2" type="float" value="0.8" />
+  </add>
+  <multiply name="mul_221" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_222" type="float">
+    <input name="in1" type="float" nodename="mul_221" />
+    <input name="in2" type="float" value="0.85" />
+  </add>
+  <multiply name="mul_223" type="float">
+    <input name="in1" type="float" nodename="add_220" />
+    <input name="in2" type="float" nodename="add_222" />
+  </multiply>
+  <multiply name="cmul_224" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="mul_223" />
+  </multiply>
+  <multiply name="mul_225" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.15" />
+  </multiply>
+  <add name="add_226" type="float">
+    <input name="in1" type="float" nodename="mul_225" />
+    <input name="in2" type="float" value="0.75" />
+  </add>
+  <standard_surface name="asphalt_shader_227" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_224" />
+    <input name="specular" type="float" value="0.25" />
+    <input name="specular_roughness" type="float" nodename="add_226" />
+  </standard_surface>
+  <surfacematerial name="asphalt" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="asphalt_shader_227" />
+  </surfacematerial>
+
+  <!-- ===== sidewalk: concrete slabs, each slab tinted by Cd, stains from noise ===== -->
+  <multiply name="mul_228" type="float">
+    <input name="in1" type="float" nodename="clamp_8" />
+    <input name="in2" type="float" value="0.3" />
+  </multiply>
+  <add name="add_229" type="float">
+    <input name="in1" type="float" nodename="mul_228" />
+    <input name="in2" type="float" value="0.82" />
+  </add>
+  <multiply name="mul_230" type="float">
+    <input name="in1" type="float" nodename="aggregate_218" />
+    <input name="in2" type="float" value="0.08" />
+  </multiply>
+  <add name="add_231" type="float">
+    <input name="in1" type="float" nodename="mul_230" />
+    <input name="in2" type="float" value="0.96" />
+  </add>
+  <multiply name="mul_232" type="float">
+    <input name="in1" type="float" nodename="add_229" />
+    <input name="in2" type="float" nodename="add_231" />
+  </multiply>
+  <multiply name="cmul_233" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="mul_232" />
+  </multiply>
+  <standard_surface name="sidewalk_shader_234" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_233" />
+    <input name="specular" type="float" value="0.3" />
+    <input name="specular_roughness" type="float" value="0.85" />
+  </standard_surface>
+  <surfacematerial name="sidewalk" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="sidewalk_shader_234" />
+  </surfacematerial>
+
+  <!-- ===== soil / bark / leaves / painted metal / road paint ===== -->
+  <multiply name="mul_235" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.4" />
+  </multiply>
+  <add name="add_236" type="float">
+    <input name="in1" type="float" nodename="mul_235" />
+    <input name="in2" type="float" value="0.75" />
+  </add>
+  <multiply name="cmul_237" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="add_236" />
+  </multiply>
+  <standard_surface name="soil_shader_238" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_237" />
+    <input name="specular" type="float" value="0.1" />
+    <input name="specular_roughness" type="float" value="1.0" />
+  </standard_surface>
+  <surfacematerial name="soil" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="soil_shader_238" />
+  </surfacematerial>
+  <multiply name="Pbark_239" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="vector3" value="14.0, 1.5, 14.0" />
+  </multiply>
+  <fractal3d name="barkn_240" type="float">
+    <input name="position" type="vector3" nodename="Pbark_239" />
+    <input name="octaves" type="integer" value="3" />
+    <input name="amplitude" type="float" value="1.0" />
+  </fractal3d>
+  <multiply name="mul_241" type="float">
+    <input name="in1" type="float" nodename="barkn_240" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_242" type="float">
+    <input name="in1" type="float" nodename="mul_241" />
+    <input name="in2" type="float" value="0.5" />
+  </add>
+  <clamp name="clamp_243" type="float">
+    <input name="in" type="float" nodename="add_242" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.0" />
+  </clamp>
+  <multiply name="mul_244" type="float">
+    <input name="in1" type="float" nodename="clamp_243" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_245" type="float">
+    <input name="in1" type="float" nodename="mul_244" />
+    <input name="in2" type="float" value="0.6" />
+  </add>
+  <multiply name="cmul_246" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="add_245" />
+  </multiply>
+  <standard_surface name="bark_shader_247" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_246" />
+    <input name="specular" type="float" value="0.15" />
+    <input name="specular_roughness" type="float" value="0.9" />
+  </standard_surface>
+  <surfacematerial name="bark" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="bark_shader_247" />
+  </surfacematerial>
+  <multiply name="mul_248" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.35" />
+  </multiply>
+  <add name="add_249" type="float">
+    <input name="in1" type="float" nodename="mul_248" />
+    <input name="in2" type="float" value="0.8" />
+  </add>
+  <multiply name="cmul_250" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="add_249" />
+  </multiply>
+  <standard_surface name="leaf_shader_251" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_250" />
+    <input name="specular" type="float" value="0.25" />
+    <input name="specular_roughness" type="float" value="0.55" />
+    <input name="subsurface" type="float" value="0.25" />
+    <input name="subsurface_color" type="color3" nodename="paintcolour_13" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="leaf" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="leaf_shader_251" />
+  </surfacematerial>
+  <multiply name="mul_252" type="float">
+    <input name="in1" type="float" nodename="clamp_12" />
+    <input name="in2" type="float" value="0.15" />
+  </multiply>
+  <add name="add_253" type="float">
+    <input name="in1" type="float" nodename="mul_252" />
+    <input name="in2" type="float" value="0.3" />
+  </add>
+  <standard_surface name="metal_shader_254" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="paintcolour_13" />
+    <input name="specular" type="float" value="0.6" />
+    <input name="specular_roughness" type="float" nodename="add_253" />
+  </standard_surface>
+  <surfacematerial name="metal" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="metal_shader_254" />
+  </surfacematerial>
+  <multiply name="mul_255" type="float">
+    <input name="in1" type="float" nodename="aggregate_218" />
+    <input name="in2" type="float" value="0.25" />
+  </multiply>
+  <add name="add_256" type="float">
+    <input name="in1" type="float" nodename="mul_255" />
+    <input name="in2" type="float" value="0.8" />
+  </add>
+  <multiply name="cmul_257" type="color3">
+    <input name="in1" type="color3" nodename="paintcolour_13" />
+    <input name="in2" type="float" nodename="add_256" />
+  </multiply>
+  <standard_surface name="street_paint_shader_258" type="surfaceshader">
+    <input name="base_color" type="color3" nodename="cmul_257" />
+    <input name="specular" type="float" value="0.3" />
+    <input name="specular_roughness" type="float" value="0.7" />
+  </standard_surface>
+  <surfacematerial name="street_paint" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="street_paint_shader_258" />
+  </surfacematerial>
+
+  <!-- ===== lamp: street lamp + porch light glass (the Dusk look turns emission up) ===== -->
+  <geompropvalue name="lampon_259" type="float">
+    <input name="geomprop" type="string" value="lamp_on" />
+    <input name="default" type="float" value="0.0" />
+  </geompropvalue>
+  <multiply name="mul_260" type="float">
+    <input name="in1" type="float" nodename="lampon_259" />
+    <input name="in2" type="float" value="12.0" />
+  </multiply>
+  <standard_surface name="lamp_shader_261" type="surfaceshader">
+    <input name="base_color" type="color3" value="0.55, 0.53, 0.48" />
+    <input name="specular" type="float" value="0.5" />
+    <input name="specular_roughness" type="float" value="0.2" />
+    <input name="emission" type="float" nodename="mul_260" />
+    <input name="emission_color" type="color3" value="1.0, 0.78, 0.45" />
+  </standard_surface>
+  <surfacematerial name="lamp" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="lamp_shader_261" />
+  </surfacematerial>
+
+  <!-- ===== clouds: a lit, cut-out cloud layer on a high dome (km-scale noise), shaded by the real sun + sky ===== -->
+  <multiply name="Pcloud_262" type="vector3">
+    <input name="in1" type="vector3" nodename="P_0" />
+    <input name="in2" type="vector3" value="0.0007, 0.004, 0.0028" />
+  </multiply>
+  <fractal3d name="cloudn_263" type="float">
+    <input name="position" type="vector3" nodename="Pcloud_262" />
+    <input name="octaves" type="integer" value="5" />
+    <input name="amplitude" type="float" value="1.0" />
+  </fractal3d>
+  <multiply name="mul_264" type="float">
+    <input name="in1" type="float" nodename="cloudn_263" />
+    <input name="in2" type="float" value="0.5" />
+  </multiply>
+  <add name="add_265" type="float">
+    <input name="in1" type="float" nodename="mul_264" />
+    <input name="in2" type="float" value="0.5" />
+  </add>
+  <clamp name="clamp_266" type="float">
+    <input name="in" type="float" nodename="add_265" />
+    <input name="low" type="float" value="0.0" />
+    <input name="high" type="float" value="1.0" />
+  </clamp>
+  <smoothstep name="smooth_267" type="float">
+    <input name="in" type="float" nodename="clamp_266" />
+    <input name="low" type="float" value="0.6" />
+    <input name="high" type="float" value="0.85" />
+  </smoothstep>
+  <multiply name="mul_268" type="float">
+    <input name="in1" type="float" nodename="smooth_267" />
+    <input name="in2" type="float" value="0.8" />
+  </multiply>
+  <mix name="mixc_269" type="color3">
+    <input name="fg" type="color3" value="1.0, 1.0, 1.0" />
+    <input name="bg" type="color3" value="0.0, 0.0, 0.0" />
+    <input name="mix" type="float" nodename="mul_268" />
+  </mix>
+  <standard_surface name="clouds_shader_270" type="surfaceshader">
+    <input name="base_color" type="color3" value="1.0, 0.98, 0.96" />
+    <input name="base" type="float" value="0.8" />
+    <input name="specular" type="float" value="0.0" />
+    <input name="emission" type="float" value="0.35" />
+    <input name="emission_color" type="color3" value="1.0, 0.97, 0.94" />
+    <input name="opacity" type="color3" nodename="mixc_269" />
+    <input name="thin_walled" type="boolean" value="true" />
+  </standard_surface>
+  <surfacematerial name="clouds" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="clouds_shader_270" />
+  </surfacematerial>
+
+  <!-- ===== sky: an emissive backdrop, colour from displayColor (the night sky dome geometry) ===== -->
+  <geompropvalue name="skycol_271" type="color3">
+    <input name="geomprop" type="string" value="skycol" />
+    <input name="default" type="color3" value="0.02, 0.03, 0.08" />
+  </geompropvalue>
+  <standard_surface name="sky_shader_272" type="surfaceshader">
+    <input name="base" type="float" value="0.0" />
+    <input name="specular" type="float" value="0.0" />
+    <input name="emission" type="float" value="1.0" />
+    <input name="emission_color" type="color3" nodename="skycol_271" />
+  </standard_surface>
+  <surfacematerial name="sky" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="sky_shader_272" />
+  </surfacematerial>
+</materialx>
