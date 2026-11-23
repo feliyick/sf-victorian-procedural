@@ -81,3 +81,12 @@ else if (BRANCH == "roof")         { sem = inprimgroup(0, "ornament", @primnum) 
 else if (BRANCH == "walls")        { if (inprimgroup(0, "roof_top", @primnum)) { sem = 8; inst = 600; } else { sem = 1; inst = 700; } }
 else if (BRANCH == "number")       { sem = 10; inst = 900; }
 i@semantic_id = sem; i@instance_id = inst; i@parent_id = parent;
+
+// stairs only: copy stair_params' exact layout onto the faces (read by houdini-mcp scene_metrics)
+if (BRANCH == "stairs") {
+    string src = "op:" + opfullpath("../stair_params");
+    i@stair_risers = detail(src, "stair_risers");      i@stair_steps = detail(src, "stair_steps");
+    f@stair_riser_h = detail(src, "stair_riser_h");    f@stair_tread = detail(src, "stair_tread");
+    f@stair_climb = detail(src, "stair_climb");        f@stair_landing_d = detail(src, "stair_landing_d");
+    f@stair_width = detail(src, "stair_width");
+}
