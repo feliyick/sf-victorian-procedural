@@ -1,5 +1,5 @@
 # check_materials.py: READ-ONLY. Lists the materials on the stage and what each house part is bound to.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/check_materials.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/check_materials.py'), encoding='utf-8').read())
 import hou
 from pxr import UsdShade
 mt = hou.node('/stage/sfh_mtlx')

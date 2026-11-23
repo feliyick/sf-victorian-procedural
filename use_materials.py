@@ -1,5 +1,5 @@
 # use_materials.py: point /stage at a NEW material file version (no hot-reload, so no USD cache problems).
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/use_materials.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/use_materials.py'), encoding='utf-8').read())
 # Each time the materials change, Claude writes house_materials_vN.mtlx; this picks the newest one.
 import hou, glob, os, re
 files = glob.glob(hou.text.expandString('$HIP/materials/house_materials_v*.mtlx'))

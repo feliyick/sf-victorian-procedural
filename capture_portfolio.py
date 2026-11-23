@@ -1,5 +1,5 @@
 # capture_portfolio.py — renders + captures everything for the portfolio, unattended.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/capture_portfolio.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/capture_portfolio.py'), encoding='utf-8').read())
 #
 # Houdini is busy while it runs (Karma renders take minutes each), so start it and walk away.
 # Edit the SETTINGS block first. Output: $HIP/render/portfolio/<run>/ ... plus log.txt.
@@ -19,7 +19,7 @@ LOOKS     = {'sunny': 4, 'golden': 0, 'dusk': 3, 'night': 5}     # sfh_look inpu
 SHOTS = [('night', 'cam_front'), ('night', 'cam_row_up'), ('night', 'cam_wide'),
          ('golden', 'cam_front'), ('golden', 'cam_wide'), ('golden', 'cam_aerial'), ('golden', 'cam_row_down'),
          ('sunny', 'cam_front'), ('sunny', 'cam_street'), ('sunny', 'cam_tele')]
-try: SHOTS = SHOTS_OVERRIDE          # a patch can pass its own short list
+try: SHOTS = SHOTS_OVERRIDE          # a calling script can pass its own short list
 except NameError: pass
 QUICK     = False            # True: 32 samples, fast check of everything.  False: final quality (256 samples)
 DO_BEAUTY = True

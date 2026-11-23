@@ -1,6 +1,6 @@
 # check_errors.py: READ-ONLY. Re-cooks the house and the /stage network and lists any node that
 # still has an error (red triangles in the network editor can be left over from an earlier failure).
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/check_errors.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/check_errors.py'), encoding='utf-8').read())
 import hou
 asset = hou.node('/obj/sf_house_geometry/victorian_house')
 out = hou.node('/obj/sf_house_geometry/OUT_RENDER')

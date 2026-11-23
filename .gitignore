@@ -28,6 +28,6 @@ materials/house_materials*.mtlx
 *.bak
 # web renders: JPGs only (PNGs are the lossless masters, kept locally)
 render/portfolio/web/**/*.png
-# agent session patch scripts (kept locally, not published)
+# local working scripts (not published)
 patch_*.py
 CLAUDE.local.md

@@ -1,7 +1,7 @@
 # demo_params.py: plays a scripted "live editing" demo on the hero house while you screen-record.
 # Each step changes one parameter on the asset (you see the parameter panel AND the viewport update), with a pause.
 # Start your recording (Cmd+Shift+5), select victorian_house so its panel is visible, Houdini GL viewport, then run:
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/demo_params.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/demo_params.py'), encoding='utf-8').read())
 # Everything is put back at the end. Edit STEPS to taste. Stop early: run  hou.session.demo_stop()
 import hou, time
 NET = hou.node('/obj/sf_house_geometry'); H = NET.node('victorian_house'); C = NET.node('STREET_CONTROLS')

@@ -1,6 +1,6 @@
 # dump_door_debug.py: READ-ONLY. Saves the geometry around the front door to debug/door_debug.json
 # so Claude can see the clipping offline.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/dump_door_debug.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/dump_door_debug.py'), encoding='utf-8').read())
 import hou, json, os
 a = hou.node('/obj/sf_house_geometry/victorian_house')
 out = {'nodes': sorted(n.name() for n in a.children())}

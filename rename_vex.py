@@ -11,7 +11,7 @@
 # node's user data under 'snippet_backup'.
 #
 # Run in Houdini:  Windows > Python Shell, then
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/rename_vex.py').read())
+#   exec(open(hou.text.expandString('$HIP/rename_vex.py')).read())
 # Save your file first (File > Save As a new version).
 # =====================================================================
 import hou

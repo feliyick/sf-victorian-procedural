@@ -1,6 +1,6 @@
 # dump_roof_debug.py: READ-ONLY. Saves the roof inputs/outputs to debug/roof_debug.json so
 # Claude can test the roof code offline (and look at the result) instead of guessing.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/dump_roof_debug.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/dump_roof_debug.py'), encoding='utf-8').read())
 import hou, json, os
 a = hou.node('/obj/sf_house_geometry/victorian_house')
 out = {}

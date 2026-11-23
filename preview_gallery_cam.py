@@ -1,7 +1,7 @@
 # preview_gallery_cam.py: NO rendering, NO capturing - it only shows the house alone and moves cam_gallery
 # onto it, exactly as the gallery render will frame it. It asks which seed to frame.
 # When you're done looking, run restore_row.py to put Row Count + your original seed back.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/preview_gallery_cam.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/preview_gallery_cam.py'), encoding='utf-8').read())
 import hou, os
 HIP = hou.text.expandString('$HIP')
 NET = hou.node('/obj/sf_house_geometry'); hero = NET.node('victorian_house'); ctl = NET.node('STREET_CONTROLS')

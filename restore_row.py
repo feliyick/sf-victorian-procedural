@@ -1,5 +1,5 @@
 # restore_row.py: puts the hero seed + Row Count back to what they were before preview_gallery_cam.py.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/restore_row.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/restore_row.py'), encoding='utf-8').read())
 import hou
 NET = hou.node('/obj/sf_house_geometry')
 if hasattr(hou.session, 'gallery_saved'):

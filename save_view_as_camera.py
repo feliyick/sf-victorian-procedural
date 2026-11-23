@@ -1,5 +1,5 @@
 # save_view_as_camera.py — turn whatever you're looking at in the viewport into a named camera in /stage.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/save_view_as_camera.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/save_view_as_camera.py'), encoding='utf-8').read())
 # Asks for a name (e.g. "elevated"), creates/updates /stage/sfh_cam_<name> with prim /cameras/cam_<name>,
 # copying the viewport's position, rotation and lens. It joins the camera chain before shot_cam.
 import hou

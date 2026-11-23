@@ -1,6 +1,6 @@
 # render_gallery.py: final-quality Karma renders of your hand-picked solo houses (720 x 720, 256 samples, sunny).
 # Output: render/portfolio/<time>/gallery/seed_###.exr   (~9 houses x 1-2 min)
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/render_gallery.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/render_gallery.py'), encoding='utf-8').read())
 import hou, os
 HIP = hou.text.expandString('$HIP')
 SHOTS_OVERRIDE = []

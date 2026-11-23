@@ -1,6 +1,6 @@
 # inventory.py — read-only. Prints what each input of merge3 contains, so the
 # paint step knows which groups / attributes exist. Changes nothing.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/inventory.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/inventory.py'), encoding='utf-8').read())
 import hou
 NET = hou.node('/obj/sf_house_geometry')
 merge3 = NET.node('merge3')

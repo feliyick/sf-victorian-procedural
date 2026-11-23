@@ -1,6 +1,6 @@
 # pick_seeds.py: quick low-res Karma snapshots (360 px, 32 samples; the viewport capture ignored the lens) of the hero house alone for seeds 1..48 (no Karma), so you can pick
 # favourites for the gallery. Output: render/portfolio/<time>/gallery_gl/seed_###.png  (~5-10 min)
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/pick_seeds.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/pick_seeds.py'), encoding='utf-8').read())
 import hou, os
 HIP = hou.text.expandString('$HIP')
 SHOTS_OVERRIDE = []

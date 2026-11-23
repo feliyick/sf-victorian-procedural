@@ -1,6 +1,6 @@
 # render_all.py: one unattended run - the 9 gallery houses (portrait) THEN the 10 main shots, final quality.
 # ~55-60 min. Output: render/portfolio/<time>/gallery/ and beauty/<look>/
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/render_all.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/render_all.py'), encoding='utf-8').read())
 import hou, os
 HIP = hou.text.expandString('$HIP')
 src = open(os.path.join(HIP, 'capture_portfolio.py'), encoding='utf-8').read()

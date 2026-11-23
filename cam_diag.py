@@ -1,5 +1,5 @@
 # cam_diag.py: read-only. Prints what USD actually has for cam_gallery vs cam_front.
-#   exec(open('/Users/felicityyick/HoudiniProjects/SanFranciscoHouse/cam_diag.py', encoding='utf-8').read())
+#   exec(open(hou.text.expandString('$HIP/cam_diag.py'), encoding='utf-8').read())
 import hou
 st = hou.node('/stage/sfh_karma_render').stage()
 for name in ('cam_gallery', 'cam_front'):
