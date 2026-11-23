@@ -1,0 +1,83 @@
+// =====================================================================
+// semantic_labels  —  Attribute Wrangle, Run Over: Primitives
+//   input 0: one build branch      input 1: opening_params      input 2: blast_bay_pts
+//
+// Stamps synthetic-data labels on every face, at the output of the stage that built it:
+//   i@semantic_id   the class (one per face; the most specific class wins, e.g. a window in a bay is "window")
+//   i@instance_id   which object in this house (windows, bays, door...); the street adds house_id * 1000 later
+//   i@parent_id     the containing object's instance (a bay window's bay), 0 if none
+// BRANCH is set per copy of this snippet (openings, bays, interiors, door, porch, porch_detail, stairs, roof,
+// walls, number). Classes (keep in sync with the synth tool):
+//   0 background  1 wall  2 window  3 door  4 garage  5 bay  6 stairs  7 porch  8 roof  9 ornament  10 house_number
+// Instances: 1+n flat window / garage (opening point n), 100+k bay column k, 200+j bay window on bay point j,
+//            300 door, 400 porch, 500 stairs, 600 roof, 700 wall, 900 house number.
+// =====================================================================
+string BRANCH = "__BRANCH__";
+
+int find_opening(vector c) {                       // opening whose rectangle (plus casing/hood margin) holds c
+    int best = -1; float bestd = 1e9;
+    for (int p = 0; p < npoints(1) && p < 400; p++) {
+        string nm = point(1, "name", p);
+        if (nm != "window" && nm != "garage_door") continue;
+        float l = point(1, "open_left", p), r = point(1, "open_right", p);
+        float b = point(1, "open_bottom", p), t = point(1, "open_top", p);
+        if (c.x >= l - 0.35 && c.x <= r + 0.35 && c.y >= b - 0.45 && c.y <= t + 0.6) {
+            float d = abs(c.x - (l + r) * 0.5) + abs(c.y - (b + t) * 0.5);
+            if (d < bestd) { bestd = d; best = p; }
+        }
+    }
+    return best;
+}
+
+int find_bay(vector c) {                           // bay point (one per bay floor) whose box holds c
+    for (int j = 0; j < npoints(2) && j < 64; j++) {
+        vector mn = point(2, "bbmin", j), mx = point(2, "bbmax", j);
+        if (c.x >= mn.x - 0.3 && c.x <= mx.x + 0.3 && c.y >= mn.y - 0.15 && c.y <= mx.y + 0.15 && c.z >= mn.z - 0.3 && c.z <= mx.z + 0.4)
+            return j;
+    }
+    return -1;
+}
+
+int bay_column(int j) {                            // bays sharing an x range are one column (one bay object)
+    float cols[];
+    for (int k = 0; k < npoints(2) && k < 64; k++) {
+        vector mnk = point(2, "bbmin", k);
+        int dup = 0;
+        foreach (float x; cols) if (abs(x - mnk.x) < 0.2) dup = 1;
+        if (!dup) append(cols, mnk.x);
+    }
+    vector mnj = point(2, "bbmin", j);
+    for (int i = 0; i < len(cols) && i < 64; i++) if (abs(cols[i] - mnj.x) < 0.2) return i;
+    return 0;
+}
+
+int sem = 1, inst = 700, parent = 0;
+vector c = v@P;
+if (BRANCH == "openings" || BRANCH == "interiors") {
+    int o = find_opening(c);
+    if (o >= 0) {
+        sem = (point(1, "name", o) == "garage_door") ? 4 : 2; inst = 1 + o;
+    } else {
+        int j = find_bay(c);
+        if (j >= 0) { sem = 2; inst = 200 + j; parent = 100 + bay_column(j); }
+        else { sem = 2; inst = 0; }
+    }
+    if (BRANCH == "openings" && inprimgroup(0, "garage_body", @primnum)) sem = 4;
+    if (inprimgroup(0, "ornament", @primnum)) sem = 9;
+}
+else if (BRANCH == "bays") {
+    int j = find_bay(c); if (j < 0) j = 0;
+    int col = bay_column(j);
+    int glazing = inprimgroup(0, "glass", @primnum) || inprimgroup(0, "sash", @primnum) || inprimgroup(0, "frame", @primnum)
+               || inprimgroup(0, "casing", @primnum) || inprimgroup(0, "reveal", @primnum);
+    if (glazing) { sem = 2; inst = 200 + j; parent = 100 + col; }
+    else { sem = 5; inst = 100 + col; }
+}
+else if (BRANCH == "door")         { sem = 3; inst = 300; }
+else if (BRANCH == "porch")        { sem = 7; inst = 400; }
+else if (BRANCH == "porch_detail") { sem = inprimgroup(0, "ornament", @primnum) ? 9 : 7; inst = 400; }
+else if (BRANCH == "stairs")       { sem = 6; inst = 500; }
+else if (BRANCH == "roof")         { sem = inprimgroup(0, "ornament", @primnum) ? 9 : 8; inst = 600; }
+else if (BRANCH == "walls")        { if (inprimgroup(0, "roof_top", @primnum)) { sem = 8; inst = 600; } else { sem = 1; inst = 700; } }
+else if (BRANCH == "number")       { sem = 10; inst = 900; }
+i@semantic_id = sem; i@instance_id = inst; i@parent_id = parent;

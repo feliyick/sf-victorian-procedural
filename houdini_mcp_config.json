@@ -65,5 +65,9 @@
     1
   ],
   "auto_save": true,
-  "allow_reload": true
+  "allow_reload": true,
+  "synth_label_overrides": {
+    "/stage/sfh_clay_switch/input": 1
+  },
+  "synth_label_sop": "/obj/sf_house_geometry/OUT_STREET"
 }
