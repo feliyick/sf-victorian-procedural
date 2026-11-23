@@ -69,5 +69,6 @@
   "synth_label_overrides": {
     "/stage/sfh_clay_switch/input": 1
   },
-  "synth_label_sop": "/obj/sf_house_geometry/OUT_STREET"
+  "synth_label_sop": "/obj/sf_house_geometry/OUT_STREET",
+  "synth_slope_parm": "/obj/sf_house_geometry/STREET_CONTROLS/slope"
 }
