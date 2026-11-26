@@ -31,3 +31,4 @@ render/portfolio/web/**/*.png
 # local working scripts (not published)
 patch_*.py
 CLAUDE.local.md
+mcp_headless.log

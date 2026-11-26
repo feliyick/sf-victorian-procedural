@@ -63,6 +63,8 @@ string dress[] = array("room", "curtain_sheer", "curtain", "blind", "plant", "po
 foreach (string g; dress) if (inprimgroup(0, g, @primnum)) role = g;
 
 if (role != "body") role = role;               // already decided above
+else if (inprimgroup(0, "doorbell_button", @primnum))                              role = "bell_button";
+else if (inprimgroup(0, "doorbell_plate", @primnum))                               role = "bell";
 else if (inprimgroup(0, "glass", @primnum))                                         role = "glass";
 else if (inprimgroup(0, "sash", @primnum) || inprimgroup(0, "frame", @primnum))     role = "sash";
 else if (inprimgroup(0, "door", @primnum))                                          role = "door";
@@ -138,6 +140,12 @@ else if (role == "roof") {
     else                  srgb = shingles[int(rand(chi("seed") * 7919 + 440) * 4.999)];
 }
 else if (role == "iron")   srgb = {0.04, 0.04, 0.045};
+else if (role == "bell" || role == "bell_button") {                   // doorbell: brass / white / black plate
+    int bf = prim(0, "bell_finish", @primnum);                         // 0 brass, 1 white, 2 black (doorbell_build)
+    vector brass = {0.80, 0.62, 0.32}, ivory = {0.93, 0.91, 0.84};
+    if (role == "bell") srgb = bf == 0 ? brass : (bf == 1 ? set(0.94, 0.94, 0.92) : set(0.05, 0.05, 0.055));
+    else                srgb = bf == 1 ? brass : ivory;                // button: brass on white, ivory on brass/black
+}
 else if (role == "rail_wood") srgb = rand(chi("seed") * 7919 + 412) < 0.7 ? c_trim : c_accent;
 else if (part == "cheek") {                                            // cheek walls: the house's body colour (any finish)
     if (stair_fin == 2 && rand(chi("seed") * 7919 + 414) < 0.35) { srgb = {0.64, 0.63, 0.6}; brick_cheek = 1; }
@@ -167,6 +175,11 @@ else if (role == "accent" || role == "ornament" || role == "bracket") material =
 else if (role == "rail_wood") material = "trim";
 else if (role == "garage" && garage_metal) material = "metal";
 else if (role == "number") material = "metal";
+else if (role == "bell" || role == "bell_button") {
+    int bfm = prim(0, "bell_finish", @primnum);
+    int metal_part = role == "bell" ? bfm == 0 : bfm == 1;             // the brass part is metal
+    material = metal_part ? "metal" : (role == "bell" && bfm == 2 ? "iron" : "trim");
+}
 else if (role == "stair")  material = part == "cheek" ? (brick_cheek ? "siding" : "trim")
                                    : (stair_fin == 0 || stair_side ? "trim" : (stair_fin == 2 ? "concrete" : (style == 0 ? "marble" : "granite")));
 else if (role == "blind")  material = "curtain";

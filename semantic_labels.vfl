@@ -6,11 +6,12 @@
 //   i@semantic_id   the class (one per face; the most specific class wins, e.g. a window in a bay is "window")
 //   i@instance_id   which object in this house (windows, bays, door...); the street adds house_id * 1000 later
 //   i@parent_id     the containing object's instance (a bay window's bay), 0 if none
-// BRANCH is set per copy of this snippet (openings, bays, interiors, door, porch, porch_detail, stairs, roof,
-// walls, number). Classes (keep in sync with the synth tool):
+// BRANCH is set per copy of this snippet (openings, bays, interiors, door, doorbell, porch, porch_detail, stairs,
+// roof, walls, number). Classes (keep in sync with the synth tool):
 //   0 background  1 wall  2 window  3 door  4 garage  5 bay  6 stairs  7 porch  8 roof  9 ornament  10 house_number
+//   16 doorbell (11-15 are street classes, set at street level)
 // Instances: 1+n flat window / garage (opening point n), 100+k bay column k, 200+j bay window on bay point j,
-//            300 door, 400 porch, 500 stairs, 600 roof, 700 wall, 900 house number.
+//            300 door, 350 doorbell (parent: the door), 400 porch, 500 stairs, 600 roof, 700 wall, 900 house number.
 // =====================================================================
 string BRANCH = "__BRANCH__";
 
@@ -74,6 +75,7 @@ else if (BRANCH == "bays") {
     else { sem = 5; inst = 100 + col; }
 }
 else if (BRANCH == "door")         { sem = 3; inst = 300; }
+else if (BRANCH == "doorbell")     { sem = 16; inst = 350; parent = 300; }
 else if (BRANCH == "porch")        { sem = 7; inst = 400; }
 else if (BRANCH == "porch_detail") { sem = inprimgroup(0, "ornament", @primnum) ? 9 : 7; inst = 400; }
 else if (BRANCH == "stairs")       { sem = 6; inst = 500; }
@@ -89,4 +91,12 @@ if (BRANCH == "stairs") {
     f@stair_riser_h = detail(src, "stair_riser_h");    f@stair_tread = detail(src, "stair_tread");
     f@stair_climb = detail(src, "stair_climb");        f@stair_landing_d = detail(src, "stair_landing_d");
     f@stair_width = detail(src, "stair_width");
+}
+
+// doorbell only: copy doorbell_build's numbers onto the faces (read by houdini-mcp scene_metrics)
+if (BRANCH == "doorbell") {
+    string src = "op:" + opfullpath("../doorbell_build");
+    i@bell_finish = detail(src, "bell_finish");        i@bell_mount = detail(src, "bell_mount");
+    v@bell_n = detail(src, "bell_n");                  v@bell_press_off = detail(src, "bell_press_off");
+    f@bell_w = detail(src, "bell_w");  f@bell_h = detail(src, "bell_h");  f@bell_d = detail(src, "bell_d");
 }

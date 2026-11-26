@@ -20,7 +20,7 @@ DISTANT_BUILDING, IGNORE = 15, 255
 # QA thresholds
 NEAR_BACKDROP_M = 3.0       # a backdrop building this close is blocking the camera (real neighbours are 5 m+)
 NEAR_BACKDROP_FRAC = 0.005  # ... over more than 0.5% of the image
-MIN_HOUSE_FRAC = 0.05       # at least 5% of pixels should be house classes (1-10)
+MIN_HOUSE_FRAC = 0.05       # at least 5% of pixels should be house classes (1-10, 16 doorbell)
 
 
 def qa_frame(sub_dir, stem, n_annotations):
@@ -29,7 +29,7 @@ def qa_frame(sub_dir, stem, n_annotations):
     dep = np.asarray(Image.open(os.path.join(sub_dir, 'labels', stem + '_depth.png'))).astype(np.float32) / 256.0
     seen = cls != IGNORE
     near = (cls == DISTANT_BUILDING) & (dep > 0) & (dep < NEAR_BACKDROP_M)
-    house = (cls >= 1) & (cls <= 10)
+    house = ((cls >= 1) & (cls <= 10)) | (cls == 16)
     checks = {'near_backdrop_frac': round(float(near.sum() / seen.sum()), 4),
               'house_frac': round(float((house & seen).sum() / seen.sum()), 4),
               'annotations': n_annotations}

@@ -1,0 +1,88 @@
+// =====================================================================
+// doorbell_build  —  Attribute Wrangle, Run Over: Detail
+//   input 1: entry_params (ox0/ox1/oy0/oy1 = the door opening, rec = how deep the door sits)
+//
+// A push-button doorbell beside the front door: a 7 x 11 cm plate with a round button, 2.4 cm proud.
+// Where it goes:
+//   flush door (rec < 0.5)  on the wall just outside the casing, left or right of the door
+//   recessed porch          on the back wall beside the door frame when there is room (>= 12 cm),
+//                           otherwise on the porch side wall (reveal), 0.2-0.4 m in front of the door, facing in
+// Height: 1.05-1.2 m above the door sill. Side: Auto (random) / Left / Right / None.
+// Finish: Auto (random) / Brass / White / Black (paint reads i@bell_finish: 0 brass, 1 white, 2 black).
+// The door frame numbers use entry_door's own parms (door_w, frame_w, casing_w) so they never drift apart.
+// Faces carry groups doorbell_plate / doorbell_button (paint reads them). Detail attributes for label_doorbell,
+// which copies them onto the faces for scene_metrics: i@bell_finish, i@bell_mount, v@bell_n (facing direction),
+// f@bell_w/h/d (plate width, height, total depth incl. button), v@bell_press_off (button front centre minus the
+// bell's bounding-box centre; translation-proof, so it still holds after the row moves the house).
+// =====================================================================
+#include "facade_lib.h"
+int seed = chi("seed");   // creates the seed parameter; rand_range (in facade_lib.h) reads it
+
+float ox0 = detail(1, "ox0"), ox1 = detail(1, "ox1"), oy0 = detail(1, "oy0"), rec = detail(1, "rec");
+int side_choice = chi("side");                                   // 0 auto, 1 left, 2 right, 3 none
+if (ox1 - ox0 < 0.1 || side_choice == 3) return;                 // no door, or the artist turned it off
+
+int side = side_choice == 1 ? -1 : (side_choice == 2 ? 1 : (rand_range(0, 1, 60) < 0.5 ? -1 : 1));
+int finish = chi("finish") > 0 ? chi("finish") - 1 : int(rand_range(0, 2.999, 61));
+float bell_y = oy0 + rand_range(1.05, 1.2, 62);   // real bells sit ~1.1-1.2 m; accessibility caps operable parts at 1.22 m
+
+float W = 0.07, H = 0.11, PLATE_D = 0.012;                       // plate
+float BTN_R = 0.012, BTN_D = 0.012, BTN_UP = 0.015;               // button: radius, depth, offset above plate centre
+
+// door frame edge on this side (same formulas as entry_door)
+float open_w   = ox1 - ox0;
+float door_w   = min(chf("door_w"), open_w - 0.3);
+float frame_w  = chf("frame_w");
+float casing_w = chf("casing_w");
+float mid      = 0.5 * (ox0 + ox1);
+float frame_edge = mid + side * (0.5 * door_w + frame_w);
+float reveal_x   = side < 0 ? ox0 + 0.01 : ox1 - 0.01;           // the reveal lines the recess 1 cm in
+float room       = abs(reveal_x - frame_edge);
+
+vector o, n, t;                                                   // plate back centre, facing, along-wall direction
+int mount;                                                        // 0 wall, 1 back wall of the porch, 2 porch side wall
+if (rec < 0.5) {
+    mount = 0;
+    o = set(side < 0 ? ox0 - casing_w - 0.04 - 0.5 * W : ox1 + casing_w + 0.04 + 0.5 * W, bell_y, 0);
+    n = {0, 0, 1}; t = {1, 0, 0};
+} else if (room >= 0.12) {
+    mount = 1;
+    o = set(0.5 * (frame_edge + reveal_x), bell_y, -rec);
+    n = {0, 0, 1}; t = {1, 0, 0};
+} else {
+    mount = 2;
+    o = set(reveal_x, bell_y, -rec + rand_range(0.2, 0.4, 63));
+    n = set(-side, 0, 0); t = {0, 0, 1};                          // left reveal faces +x, right reveal faces -x
+}
+vector up = {0, 1, 0};
+
+// ---------- plate: a bevelled box ----------
+vector a = o - t * 0.5 * W - up * 0.5 * H, b = o + t * 0.5 * W + up * 0.5 * H + n * PLATE_D;
+add_box(min(a, b), max(a, b), "doorbell_plate");
+
+// ---------- button: a short 12-sided cylinder on the plate (add_poly_out winds each face outward) ----------
+int SEG = 12;
+vector bc = o + up * BTN_UP + n * PLATE_D;                        // button base centre (on the plate face)
+vector u = normalize(cross(n, up));                               // in the plate plane, horizontal
+vector mid_c = bc + n * 0.5 * BTN_D;
+vector ring0[], ring1[];
+for (int k = 0; k < SEG; k++) {
+    float ang = 2 * M_PI * k / SEG;
+    vector r = (u * cos(ang) + up * sin(ang)) * BTN_R;
+    append(ring0, bc + r);
+    append(ring1, bc + r + n * BTN_D);
+}
+for (int k = 0; k < SEG; k++) {
+    int k1 = (k + 1) % SEG;
+    vector quad[] = array(ring0[k], ring0[k1], ring1[k1], ring1[k]);
+    add_poly_out(quad, mid_c, "doorbell_button");
+}
+add_poly_out(ring1, mid_c, "doorbell_button");                     // front cap (the back sits on the plate)
+
+// ---------- numbers for labels / scene_metrics (stamped on the faces by label_doorbell) ----------
+vector press = bc + n * BTN_D;                                    // where a finger (or robot) presses
+vector box_ctr = o + n * 0.5 * (PLATE_D + BTN_D);                 // centre of the bell's bounding box
+i@bell_side = side; i@bell_finish = finish; i@bell_mount = mount;
+v@bell_n = n; f@bell_w = W; f@bell_h = H; f@bell_d = PLATE_D + BTN_D;
+v@bell_press_off = press - box_ctr;
+// facade_lib reload 0

@@ -11,7 +11,8 @@ system around it, rendered in Karma/Solaris. Houdini **20.5.370**, **Apprentice 
   - inside the HDA: `openings_build` (windows, hoods, garage doors), `roof_build` (cornice, gables, brackets),
     `ornament` (carved scrolls/sprays/sunbursts from `orn_slot` points), `porch_detail` (columns, beam, newels),
     `window_dressing` (rooms, curtains, blinds, plants per window), `paint` (paint roles, palettes, materials,
-    stoop finishes, lit rooms), `house_number_place`.
+    stoop finishes, lit rooms), `house_number_place`, `doorbell_build` (labelled doorbell beside the front door),
+    `semantic_labels` (synthetic-data class/instance ids per build branch).
   - street level (in `/obj/sf_house_geometry`): `house_tag`, `row_layout`, `street_build`, `city_backdrop`.
 - `vex/include/facade_lib.h` — shared VEX for the HDA (`rand_range`, `place_part`, `add_quad`, `add_box` = chamfered
   box driven by spare parm `bevel`, `bracket_v`/`scroll_bracket`, plan helpers).
@@ -70,5 +71,7 @@ system around it, rendered in Karma/Solaris. Houdini **20.5.370**, **Apprentice 
 The agent drives the open Houdini session through [houdini-mcp](https://github.com/feliyick/houdini-mcp)
 (settings in `houdini_mcp_config.json`). Prefer its tools over ad-hoc scripts: `scene_info`, `get_parms`,
 `set_parms` (dry run first), `cook_and_check`, `viewport_snapshot`, `quick_render`, `frame_camera`,
-`sweep_video`. `auto_save` is on (scene saved after each successful MCP edit); `undo`/`redo` only step through
+`sweep_video`, `usd_export` / `cache_write` (files only under `$HIP`), `hda_edit` / `add_parm` / `hda_save`.
+Headless: `houdini-mcp-headless --hip SanFranciscoHouse_v4_hda.hipnc` runs the same tools in hython (never saves over
+the scene); use it for exports and batch renders without touching the open GUI session. `auto_save` is on (scene saved after each successful MCP edit); `undo`/`redo` only step through
 `MCP: ...` undo groups and refuse at the artist's own edits; `reload_listener` picks up listener code changes.
