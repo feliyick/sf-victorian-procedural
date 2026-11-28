@@ -1,0 +1,17 @@
+// =====================================================================
+// blob_protos  —  Attribute Wrangle, Run Over: Detail (no input)
+// The 8 foliage blob shapes that every tree crown, hedge and shrub lump is instanced from. blob() in street_lib.h
+// now emits one point per blob (pscale, orient, blob_variant, blob_cd); street_blob_copy / backdrop_blob_copy copy
+// the matching shape onto each point as a packed instance, and the SOP Import writes them as a USD PointInstancer.
+// Each shape is blob_mesh() at the origin with radius 1 (54 faces); i@blob_variant on its faces picks it.
+// =====================================================================
+#include "street_lib.h"
+int NV = 8, FACES = 54;                       // blob_mesh: 9 x 6 quads
+for (int v = 0; v < NV; v++) {
+    blob_mesh({0, 0, 0}, 1.0, v * 977 + 13, "leaf", {0.3, 0.38, 0.16});
+    // prims added to an empty geometry are numbered 0, 1, 2 ... in order, so variant v owns v*54 .. v*54+53
+    for (int k = 0; k < FACES; k++) {
+        setprimattrib(0, "blob_variant", v * FACES + k, v);
+        setprimattrib(0, "path", v * FACES + k, "geo");      // relative: the mesh sits inside each USD prototype
+    }
+}

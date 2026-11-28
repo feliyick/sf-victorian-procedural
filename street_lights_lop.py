@@ -10,7 +10,7 @@ def note(text):
         with hou.undos.disabler(): node.setComment(text)
 # the night sky dome: seen by the camera only, so it doesn't block the light that falls on the street
 from pxr import Sdf
-sky = stage.GetPrimAtPath('/street/sky')
+sky = stage.GetPrimAtPath('/World/environment/sky/geo')     # usd_structure puts the sky here (was /street/sky)
 if sky and sky.IsValid():
     pv = sky.CreateAttribute('primvars:karma:object:rendervisibility', Sdf.ValueTypeNames.String)
     pv.Set('primary')            # camera rays only (Karma token: 'primary')

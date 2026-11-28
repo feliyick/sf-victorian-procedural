@@ -85,7 +85,7 @@ def ensure_clay():
     m.parm('base_colorr').set(0.8); m.parm('base_colorg').set(0.8); m.parm('base_colorb').set(0.78)
     m.parm('specular').set(0.1); m.parm('specular_roughness').set(0.7)
     asg = stage.createNode('assignmaterial', 'sfh_clay_assign'); asg.setInput(0, lib)
-    asg.parm('primpattern1').set('/house/** /street/**')
+    asg.parm('primpattern1').set('/World/**')
     asg.parm('matspecpath1').set('/clay/clay' if lib.parm('matpathprefix') else '/materials/clay')
     sw = stage.createNode('switch', 'sfh_clay_switch')
     nxt = [o for o in lights.outputs() if o != lib]

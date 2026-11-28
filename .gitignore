@@ -32,3 +32,5 @@ render/portfolio/web/**/*.png
 patch_*.py
 CLAUDE.local.md
 mcp_headless.log
+# generated USD package (usd_publish.py)
+usd_publish/

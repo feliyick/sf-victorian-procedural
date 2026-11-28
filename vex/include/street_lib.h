@@ -81,8 +81,22 @@ void hcyl(vector a, b; float r; int n; string mat; vector srgb) {
     face(B, ax, mat, srgb);
     face(A, -ax, mat, srgb);
 }
-// a lumpy low-poly sphere (tree canopy clumps)
+// a foliage blob (tree crown lump, hedge, shrub): ONE POINT, not a mesh. Downstream, Copy to Points puts one of
+// 8 prebuilt blob shapes (blob_protos, built with blob_mesh) on it as a packed instance, and the SOP Import turns
+// those into a USD PointInstancer: ~3,000 blobs share 8 x 54 faces instead of 160k unique faces.
+// Point attributes: pscale (radius), blob_variant 0-7, blob_cd (linear colour), blob_mat, orient (random spin
+// about Y so the 8 shapes don't read as repeats); group blob_pts.
 void blob(vector c; float r; int seed_s; string mat; vector srgb) {
+    int pt = addpoint(0, c);
+    setpointattrib(0, "pscale", pt, r);
+    setpointattrib(0, "blob_variant", pt, abs(seed_s) % 8);
+    setpointattrib(0, "blob_cd", pt, pow(srgb, 2.2));
+    setpointattrib(0, "blob_mat", pt, mat);
+    setpointattrib(0, "orient", pt, quaternion(2 * PI * rand(seed_s * 7 + 3), {0, 1, 0}));
+    setpointgroup(0, "blob_pts", pt, 1);
+}
+// the blob as real faces (the original): blob_protos builds the 8 instance shapes with it (c = 0, r = 1)
+void blob_mesh(vector c; float r; int seed_s; string mat; vector srgb) {
     int nu = 9, nv = 6;
     vector g[];
     for (int j = 0; j <= nv; j++)

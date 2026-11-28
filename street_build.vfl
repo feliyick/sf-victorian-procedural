@@ -584,13 +584,15 @@ for (float px0 = X0 + 6 + 4 * rnd(11); px0 < X1 - 2; px0 += 24) {
     for (int side = 0; side < 2; side++) {
         float pz = side ? far_pole_z : pole_z;
         vector b = set(px, gy(px) - (side ? 0 : 0), pz);
-        cyl(b, 0.13, 0.09, 7.4, 10, "metal", {0.30, 0.31, 0.30});
-        // lamp arm reaching over the road
+        // the lamp post itself is ONE POINT: lamp_copy puts the lamp_proto asset on it as a packed instance, and
+        // Solaris makes each one a native USD instance (/World/street/street_furniture/lamp_post_NN).
+        // The far side faces the other way: 180 degrees about Y. Same shape as before (lamp_proto.vfl).
         float dir = side ? -1 : 1;
-        vector arm0 = b + set(0, 6.9, 0), arm1 = b + set(0, 7.2, dir * 2.2);
-        hcyl(arm0, arm1, 0.04, 6, "metal", {0.30, 0.31, 0.30});
-        lbox(arm1 + set(-0.18, -0.06, -0.3), arm1 + set(0.18, 0.02, 0.3), "metal", {0.2, 0.2, 0.2});
-        lbox(arm1 + set(-0.14, -0.12, -0.24), arm1 + set(0.14, -0.06, 0.24), "lamp", {0.9, 0.85, 0.7});        // lamp glass (glows at dusk)
+        vector arm1 = b + set(0, 7.2, dir * 2.2);
+        int lp = addpoint(0, b);
+        setpointattrib(0, "orient", lp, quaternion(side ? PI : 0, {0, 1, 0}));
+        setpointattrib(0, "lamp_id", lp, len(lamp_p));
+        setpointgroup(0, "lamp_pts", lp, 1);
         append(lamp_p, arm1 - set(0, 0.2, 0));                                                                   // for the real lights (night)
     }
     // span wire across the street, with the two trolley wires hung from it
@@ -808,3 +810,4 @@ f[]@hx0 = hx0; f[]@hx1 = hx1;
 f@far_back = FAR1;
 v[]@lamp_pos = lamp_p;          // street lamp heads, for the night lights in /stage
 f@lamp_on = chi("lamps_on");      // 1 at dusk / night: the lamp material glows only then
+// street_lib reload 2026-11-28 09:39

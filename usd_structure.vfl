@@ -1,0 +1,76 @@
+// =====================================================================
+// usd_structure  —  Attribute Wrangle, Run Over: Primitives  (input 0: OUT_STREET)  ->  OUT_USD -> /stage
+//
+// Gives every object its own USD prim, named after its label, instead of one prim per material.
+//   houses   /World/houses/house_<h>/<class>_<local>/geo        e.g. house_0/door_300/geo
+//            a part with a parent nests under it:   house_0/bay_100/window_201/geo, door_300/doorbell_350/geo
+//   street   /World/street/<class>/<material>/geo   (road, sidewalk, vegetation, street_furniture)
+//            open polylines (wires) go to .../wires so they never share a prim with meshes
+//   backdrop /World/backdrop/<material>/geo        sky + clouds  /World/environment/<material>/geo
+// Materials stay on the faces (s@material): the SOP Import turns them into GeomSubsets inside each mesh,
+// and sfh_assign binds the MaterialX materials to those subsets. sfh_semantics (Python LOP) then writes the
+// class labels and kinds on the object prims. local = instance_id % 1000 (see semantic_labels / synth_labels).
+// Packed prims (instanced foliage) get s@usdinstancerpath instead, so the SOP Import builds a PointInstancer.
+// =====================================================================
+// a parent's class from its local id range (parents are bays, doors, porches ...)
+function string parent_class(int local) {
+    if (local >= 100 && local < 200) return "bay";
+    if (local >= 200 && local < 300) return "window";
+    if (local >= 300 && local < 400) return "door";
+    if (local >= 400 && local < 500) return "porch";
+    if (local >= 500 && local < 600) return "stairs";
+    if (local >= 600 && local < 700) return "roof";
+    if (local >= 700 && local < 800) return "wall";
+    return "part";
+}
+
+string CLASSES[] = {"background", "wall", "window", "door", "garage", "bay", "stairs", "porch", "roof", "ornament",
+                    "house_number", "road", "sidewalk", "vegetation", "street_furniture", "distant_building", "doorbell"};
+
+int sem = i@semantic_id;
+string cls = sem >= 0 && sem < len(CLASSES) ? CLASSES[sem] : "unlabelled";
+int is_house = (sem >= 1 && sem <= 10) || sem == 16;
+string mat = s@material != "" ? s@material : "default";
+int open_curve = primintrinsic(0, "typename", @primnum) == "Poly" && primintrinsic(0, "closed", @primnum) == 0;
+
+string p;
+if (is_house) {
+    int local = i@instance_id > 0 ? i@instance_id % 1000 : 0;
+    int plocal = i@parent_id > 0 ? i@parent_id % 1000 : 0;
+    string obj = local > 0 ? sprintf("%s_%03d", cls, local) : cls;
+    string house = sprintf("/World/houses/house_%d", i@house_id);
+    // ornament carries the id of the thing it decorates (window_011's hood scroll is ornament with id 11):
+    // nest it under that owner as .../window_011/ornament
+    if (sem == 9 && local > 0) {
+        int nk = findattribvalcount(0, "prim", "instance_id", i@instance_id);
+        string owner = "";
+        for (int k = 0; k < nk && k < 400 && owner == ""; k++) {
+            int pr = findattribval(0, "prim", "instance_id", i@instance_id, k);
+            int s2 = prim(0, "semantic_id", pr);
+            if (s2 != 9 && s2 >= 0 && s2 < len(CLASSES)) owner = sprintf("%s_%03d", CLASSES[s2], local);
+        }
+        if (owner == "") owner = sprintf("%s_%03d", parent_class(local), local);
+        obj = owner + "/ornament";
+    }
+    if (plocal > 0 && plocal != local)
+        p = sprintf("%s/%s_%03d/%s", house, parent_class(plocal), plocal, obj);
+    else
+        p = house + "/" + obj;
+} else if (sem == 15) {
+    p = "/World/backdrop/" + mat;
+} else if (sem == 0 || mat == "sky" || mat == "clouds") {
+    p = "/World/environment/" + mat;
+} else {
+    p = "/World/street/" + cls + "/" + mat;
+}
+// packed instances (foliage blobs from *_blob_copy): one USD PointInstancer per group, e.g.
+// /World/street/vegetation/leaf/foliage, with the 8 blob shapes as its prototypes
+if (inprimgroup(0, "lamp_inst", @primnum)) {
+    // street lamps: each its own prim, a native instance of one lamp asset (imported by sfh_lamp_import)
+    s@path = sprintf("/World/street/street_furniture/lamp_post_%02d", i@lamp_id);
+} else if (primintrinsic(0, "typename", @primnum) == "PackedGeometry") {
+    s@usdinstancerpath = p + "/foliage";
+    s@path = p + "/foliage/Prototypes/blob";      // prototypes live under the instancer (USD convention)
+} else {
+    s@path = p + (open_curve ? "/wires" : "/geo");
+}

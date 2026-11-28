@@ -13,15 +13,19 @@ system around it, rendered in Karma/Solaris. Houdini **20.5.370**, **Apprentice 
     `window_dressing` (rooms, curtains, blinds, plants per window), `paint` (paint roles, palettes, materials,
     stoop finishes, lit rooms), `house_number_place`, `doorbell_build` (labelled doorbell beside the front door),
     `semantic_labels` (synthetic-data class/instance ids per build branch).
-  - street level (in `/obj/sf_house_geometry`): `house_tag`, `row_layout`, `street_build`, `city_backdrop`.
+  - street level (in `/obj/sf_house_geometry`): `house_tag`, `row_layout`, `street_build`, `city_backdrop`,
+    `blob_protos` (the 8 foliage blob shapes), `usd_structure` (USD prim paths per object, see USD structure below).
 - `vex/include/facade_lib.h` — shared VEX for the HDA (`rand_range`, `place_part`, `add_quad`, `add_box` = chamfered
   box driven by spare parm `bevel`, `bracket_v`/`scroll_bracket`, plan helpers).
   `vex/include/street_lib.h` — shared VEX for street + backdrop (`gy` = ground height on the hill, `face`, `sbox`,
-  `lbox`, `cyl`, `hcyl`, `blob`, `wire`). **Not yet embedded in the HDA**: the asset needs `vex/include/` beside it.
+  `lbox`, `cyl`, `hcyl`, `blob`, `wire`). `blob()` emits ONE POINT (pscale, orient, blob_variant, blob_cd) that gets
+  an instanced blob shape downstream; `blob_mesh()` is the real-faces version (used by `blob_protos`). **Not yet embedded in the HDA**: the asset needs `vex/include/` beside it.
 - `materials/build_materials.py` — generates MaterialX procedural (world-space, no UV) materials →
   `house_materials_vN.mtlx`. Current: **v16**. `/stage/sfh_mtlx` sublayers it (path relative to `$HIP`);
   `/stage/sfh_assign` assigns by prim path `/house/<material>` and `/street/<material>` (geometry carries `s@path`).
-- `lights_lop.py`, `street_lights_lop.py` — code of the Python LOPs `sfh_lights` and `sfh_street_lights`.
+- `lights_lop.py`, `street_lights_lop.py`, `semantics_lop.py` — code of the Python LOPs `sfh_lights`,
+  `sfh_street_lights`, `sfh_semantics`.
+- `usd_publish.py` — hython: writes the street as a payload package to `usd_publish/street/` (see USD structure).
 - `check_errors.py` — read-only: re-cooks the asset and `/stage`, prints every node with an error.
 - `capture_portfolio.py`, `exr2web.py`, `make_contact_sheet.py` — unattended Karma renders and web conversion.
 - `houdini_mcp_config.json` — this project's settings for [houdini-mcp](https://github.com/feliyick/houdini-mcp).
@@ -36,11 +40,40 @@ system around it, rendered in Karma/Solaris. Houdini **20.5.370**, **Apprentice 
     - editable: `house_L1..3`, `house_R1..3` real HDA nodes with the same live random expressions; typing a value overrides.
     - `row_mode` switch → `row_layout` (lays houses down the hill, writes detail arrays hx0/hx1/hb/hd/bay_x0/bay_x1)
       → `row_move` (the row of houses only) → `street_build` (reads everything from geometry, no node names)
-      → `city_backdrop` → `OUT_STREET`.
-- `/stage`: `sfh_house_import` (OUT_STREET) → merge → `sfh_mtlx` → `sfh_assign` → looks →
+      → `city_backdrop` → `OUT_STREET` → `usd_structure` → `OUT_USD` (what Solaris imports).
+    - foliage instancing: `street_build` / `city_backdrop` → `*_blob_copy` (Copy to Points, packed, picks the
+      `blob_protos` shape by `blob_variant`) → `*_blob_tag` → merged with `*_no_blob_pts` in `*_with_blobs`
+      → `synth_labels_street` / `synth_labels_backdrop`.
+    - lamp instancing: `street_build` emits one point per lamp (`lamp_pts`, orient, lamp_id) → `lamp_copy` puts
+      `lamp_proto` → `lamp_proto_tidy` on them (packed) → `lamp_tag` (group `lamp_inst`) → `street_with_blobs`.
+- `/stage`: `sfh_house_import` (OUT_USD) → `sfh_semantics` → merge → `sfh_mtlx` → `sfh_assign` → looks →
   `sfh_look` switch (0 golden, 1 fog, 2 original, 3 dusk, 4 sunny, 5 night) → `sfh_lights` (room/lamp emission per look)
   → cameras (`cam_front`, `cam_wide`, `cam_hero`, `cam_tele`, `cam_street`, `cam_aerial`, `cam_row_up`,
   `cam_row_down`, plus `mcp_cam_*` made by `frame_camera`) → `sfh_karma_render`.
+
+## USD structure (one prim per object, labelled; Replicator / Isaac style)
+- `usd_structure` sets `s@path` from the labels: `/World/houses/house_<h>/<class>_<local>/geo` (local =
+  instance_id % 1000), parts nest under their parent (`bay_100/window_201`, `door_300/doorbell_350`,
+  `window_011/ornament`); street `/World/street/<class>/<material>/geo`, open curves `.../wires`;
+  `/World/backdrop/<material>`, sky + clouds `/World/environment/<material>`.
+- `sfh_house_import`: partition attribute `material` → per-material GeomSubsets inside each mesh; packed prims →
+  PointInstancer (`s@usdinstancerpath`, prototypes under `<instancer>/Prototypes`); only the primvars something
+  reads are imported (`P N Cd width base_brick base_top glow_t lamp_on lit skycol semantic_id instance_id
+  parent_id house_id`). If a material starts reading a new primvar, add it to that list.
+- `sfh_semantics` (Python LOP): class labels on every object prim in both Isaac forms (`SemanticsLabelsAPI:class`
+  / `semantics:labels:class`, and legacy `SemanticsAPI:Semantics`), `sfh:instance_id` / `sfh:house_id`, model
+  kinds (World assembly, houses group, house component, parts subcomponent), and renames subset family
+  `material` → `materialBind` (UsdShade only binds that family).
+- Lamp posts: `sfh_lamp_import` (after `sfh_house_import`, which skips group `lamp_inst`) imports them as NATIVE
+  instances: `/World/street/street_furniture/lamp_post_NN` (instanceable) sharing `.../Prototypes/lamp_post_00`.
+  Foliage = PointInstancer (thousands of unlabelled copies), lamps = native instances (each its own labelled prim).
+- `sfh_assign` / `sfh_clay_assign` bind by subset: `/World/**/material_<mat>`, clay `/World/**`, each with
+  `^/World/street/street_furniture/lamp_post_*/**` (nothing may be authored inside an instance; the prototype
+  under `Prototypes/` gets the binding).
+  Old patterns: `backup/sfh_assign_patterns_before_usd_structure.json`.
+- `usd_publish.py` → `usd_publish/street/`: `street_scene.usd` (root, payload per house / street part, sublayers
+  `looks.usd` = bindings as overs + the .mtlx), `houses/house_<n>.usd` (geometry + labels, opens alone),
+  `street.usd`, `backdrop.usd`, `environment.usd`, `metrics.json`. Generated output: git-ignored.
 
 ## Conventions / rules that came from real failures
 - **Back up before writing, save after.** A crash once lost work because the save happened before the changes.

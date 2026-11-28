@@ -1,0 +1,13 @@
+// =====================================================================
+// lamp_proto  —  Attribute Wrangle, Run Over: Detail (no input)
+// The street lamp asset, built once at the origin, arm reaching +z. street_build places one point per lamp
+// (lamp_pts, orient, lamp_id); lamp_copy instances this onto them and the SOP Import (sfh_lamp_import) writes
+// each as a native USD instance of one shared prototype. Same calls street_build used to make per lamp.
+// =====================================================================
+#include "street_lib.h"
+vector b = {0, 0, 0};
+cyl(b, 0.13, 0.09, 7.4, 10, "metal", {0.30, 0.31, 0.30});
+vector arm0 = b + set(0, 6.9, 0), arm1 = b + set(0, 7.2, 2.2);
+hcyl(arm0, arm1, 0.04, 6, "metal", {0.30, 0.31, 0.30});
+lbox(arm1 + set(-0.18, -0.06, -0.3), arm1 + set(0.18, 0.02, 0.3), "metal", {0.2, 0.2, 0.2});
+lbox(arm1 + set(-0.14, -0.12, -0.24), arm1 + set(0.14, -0.06, 0.24), "lamp", {0.9, 0.85, 0.7});   // glass (glows at dusk)
