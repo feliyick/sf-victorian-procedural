@@ -1,7 +1,7 @@
 """
 usd_publish.py - write the street as a production-style USD package (run in hython; never saves the .hip):
 
-    hython usd_publish.py [--hip SanFranciscoHouse_v4_hda.hipnc] [--out usd_publish/street]
+    hython usd_publish.py [--hip SanFranciscoHouse_v4_hda.hipnc] [--out usd_publish/street] [--seed 202]
 
 Layout written to --out:
     street_scene.usd          root layer: /World (assembly) with one PAYLOAD per house and per street part,
@@ -26,6 +26,7 @@ ap.add_argument('--out', default=None, help='output folder (default $HIP/usd_pub
 ap.add_argument('--geo-lop', default='/stage/sfh_semantics')
 ap.add_argument('--look-lop', default='/stage/sfh_assign')
 ap.add_argument('--mtlx-lop', default='/stage/sfh_mtlx')
+ap.add_argument('--seed', type=int, default=None, help='hero house seed to publish (in memory only; the row follows it)')
 a = ap.parse_args()
 
 import hou
@@ -37,6 +38,9 @@ HIP = os.path.dirname(os.path.abspath(a.hip))
 OUT = os.path.abspath(a.out or os.path.join(HIP, 'usd_publish', 'street'))
 os.makedirs(os.path.join(OUT, 'houses'), exist_ok=True)
 print('loaded %s (%.1fs)' % (a.hip, time.time() - t0), flush=True)
+if a.seed is not None:
+    hou.parm('/obj/sf_house_geometry/victorian_house/seed').set(a.seed)
+    print('hero seed set to %d (not saved)' % a.seed, flush=True)
 
 
 def new_layer(path):
