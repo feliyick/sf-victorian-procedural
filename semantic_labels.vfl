@@ -91,6 +91,7 @@ if (BRANCH == "stairs") {
     f@stair_riser_h = detail(src, "stair_riser_h");    f@stair_tread = detail(src, "stair_tread");
     f@stair_climb = detail(src, "stair_climb");        f@stair_landing_d = detail(src, "stair_landing_d");
     f@stair_width = detail(src, "stair_width");
+    i@stair_entry = detail(src, "stair_entry");        // 0 street-level step, 1 raised entry, 2 tall stoop
 }
 
 // doorbell only: copy doorbell_build's numbers onto the faces (read by houdini-mcp scene_metrics)
